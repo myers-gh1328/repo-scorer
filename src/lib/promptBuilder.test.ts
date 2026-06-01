@@ -37,7 +37,15 @@ describe('buildPrompt', () => {
     const prompt = buildPrompt(rubric, scan);
     expect(prompt).toContain('persistent_guidance');
     expect(prompt).toContain('scoped_rules');
+    expect(prompt).toContain('skills');
+    expect(prompt).toContain('specialized_agents');
+    expect(prompt).toContain('tool_manifests_mcp');
+    expect(prompt).toContain('validation_reproducibility');
     expect(prompt).toContain('ci_pr_automation');
+    expect(prompt).toContain('security_sandboxing_hooks');
+    expect(prompt).toContain('domain_context');
+    expect(prompt).toContain('governance_observability');
+    expect(prompt).toContain('versioning_provenance');
     expect(prompt).toContain('onboarding_discoverability');
   });
 });
