@@ -10,21 +10,25 @@
   async function scoreRepo(name: string, path: string) {
     scoring = name;
     scoreError = { ...scoreError, [name]: '' };
+    try {
+      const res = await fetch('/api/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, path })
+      });
 
-    const res = await fetch('/api/score', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, path })
-    });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        scoreError = { ...scoreError, [name]: body?.message ?? 'Scoring failed' };
+        return;
+      }
 
-    if (!res.ok) {
-      const text = await res.text();
-      scoreError = { ...scoreError, [name]: text };
+      window.location.href = `/repo/${name}`;
+    } catch {
+      scoreError = { ...scoreError, [name]: 'Network error — could not reach server' };
+    } finally {
       scoring = null;
-      return;
     }
-
-    window.location.href = `/repo/${name}`;
   }
 </script>
 
