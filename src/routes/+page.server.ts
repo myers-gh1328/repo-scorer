@@ -4,8 +4,12 @@ import { existsSync } from 'node:fs';
 import type { RepoConfig, ScoresStore } from '$lib/types';
 
 export const load: PageServerLoad = async () => {
-  const configRaw = await readFile('repos.config.json', 'utf-8');
-  const repos: RepoConfig[] = JSON.parse(configRaw);
+  let repos: RepoConfig[] = [];
+  try {
+    repos = JSON.parse(await readFile('repos.config.json', 'utf-8'));
+  } catch {
+    repos = [];
+  }
 
   let scores: ScoresStore = {};
   if (existsSync('scores.json')) {

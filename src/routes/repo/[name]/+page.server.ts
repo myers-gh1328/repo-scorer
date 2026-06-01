@@ -7,8 +7,12 @@ import type { RepoConfig, ScoresStore } from '$lib/types';
 export const load: PageServerLoad = async ({ params }) => {
   const { name } = params;
 
-  const configRaw = await readFile('repos.config.json', 'utf-8');
-  const repos: RepoConfig[] = JSON.parse(configRaw);
+  let repos: RepoConfig[] = [];
+  try {
+    repos = JSON.parse(await readFile('repos.config.json', 'utf-8'));
+  } catch {
+    throw error(500, 'repos.config.json not found or invalid');
+  }
   const repo = repos.find(r => r.name === name);
 
   if (!repo) {
