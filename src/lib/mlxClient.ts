@@ -7,7 +7,8 @@ export async function callMLX(config: MLXConfig, prompt: string): Promise<string
     body: JSON.stringify({
       model: config.model ?? 'local',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1
+      temperature: 0.1,
+      max_tokens: 1024
     })
   });
 
@@ -16,5 +17,9 @@ export async function callMLX(config: MLXConfig, prompt: string): Promise<string
   }
 
   const data = await response.json();
-  return data.choices[0].message.content as string;
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string') {
+    throw new Error(`MLX response missing content: ${JSON.stringify(data)}`);
+  }
+  return content;
 }
