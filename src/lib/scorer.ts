@@ -38,6 +38,10 @@ export async function scoreRepo(
     }
   }
 
+  // Default array fields in case the LLM omits them
+  result.qualityFlags = result.qualityFlags ?? [];
+  result.riskFlags = result.riskFlags ?? [];
+  result.recommendations = result.recommendations ?? [];
   result.scoredAt = new Date().toISOString();
 
   let scores: ScoresStore = {};
