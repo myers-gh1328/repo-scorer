@@ -4,12 +4,36 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { env } from '$env/dynamic/private';
 import { scoreRepo } from '$lib/scorer';
+import type { RepoConfig } from '$lib/types';
 
 const SCORES_PATH = 'scores.json';
 const RUBRIC_PATH = 'rubric.md';
 
 export const POST: RequestHandler = async ({ request }) => {
-  const { name, path } = await request.json() as { name: string; path: string };
+  let name: string;
+  let path: string;
+  try {
+    const body = await request.json();
+    name = body?.name;
+    path = body?.path;
+  } catch {
+    throw error(400, 'Request body must be valid JSON');
+  }
+
+  if (!name || typeof name !== 'string' || !path || typeof path !== 'string') {
+    throw error(400, 'Request body must include name and path strings');
+  }
+
+  // Validate path is in the configured repo list to prevent arbitrary filesystem access
+  let configs: RepoConfig[] = [];
+  try {
+    configs = JSON.parse(await readFile('repos.config.json', 'utf-8'));
+  } catch {
+    throw error(500, 'repos.config.json not found or invalid');
+  }
+  if (!configs.some(r => r.name === name && r.path === path)) {
+    throw error(400, `Repo "${name}" not found in repos.config.json`);
+  }
 
   if (!existsSync(path)) {
     throw error(400, `Repo path not found: ${path}`);
