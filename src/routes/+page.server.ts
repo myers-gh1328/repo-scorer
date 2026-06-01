@@ -13,7 +13,11 @@ export const load: PageServerLoad = async () => {
 
   let scores: ScoresStore = {};
   if (existsSync('scores.json')) {
-    scores = JSON.parse(await readFile('scores.json', 'utf-8'));
+    try {
+      scores = JSON.parse(await readFile('scores.json', 'utf-8'));
+    } catch {
+      // corrupt scores.json — ignore
+    }
   }
 
   return { repos, scores };

@@ -85,5 +85,6 @@ export function bandColor(band: HealthBand): string {
     case 'Operational': return '#f39c12';
     case 'Emerging':    return '#e67e22';
     case 'Fragile':     return '#e74c3c';
+    default:            return '#888';
   }
 }

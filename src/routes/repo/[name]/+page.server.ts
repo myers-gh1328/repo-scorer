@@ -21,8 +21,12 @@ export const load: PageServerLoad = async ({ params }) => {
 
   let result = null;
   if (existsSync('scores.json')) {
-    const scores: ScoresStore = JSON.parse(await readFile('scores.json', 'utf-8'));
-    result = scores[name] ?? null;
+    try {
+      const scores: ScoresStore = JSON.parse(await readFile('scores.json', 'utf-8'));
+      result = scores[name] ?? null;
+    } catch {
+      // corrupt scores.json — show as unscored
+    }
   }
 
   return { name, repoPath: repo.path, result };

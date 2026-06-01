@@ -13,9 +13,9 @@ const mockResult = {
   band: 'Operational',
   primaryLanguage: 'TypeScript',
   categories: {
-    persistent_guidance: 11, scoped_rules: 0, skills: 0, specialized_agents: 0,
-    tool_manifests_mcp: 1, validation_reproducibility: 6, ci_pr_automation: 0,
-    security_sandboxing_hooks: 1, domain_context: 4, governance_observability: 1,
+    persistent_guidance: 12, scoped_rules: 7, skills: 7, specialized_agents: 7,
+    tool_manifests_mcp: 7, validation_reproducibility: 7, ci_pr_automation: 7,
+    security_sandboxing_hooks: 7, domain_context: 4, governance_observability: 3,
     versioning_provenance: 2, onboarding_discoverability: 2
   },
   qualityFlags: ['Good AGENTS.md'],
