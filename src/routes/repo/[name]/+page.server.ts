@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { error } from '@sveltejs/kit';
 import { readRepoConfig } from '$lib/server/repoConfig';
-import type { RepoConfig, ScoresStore } from '$lib/types';
+import type { ImprovementPlansStore, RepoConfig, ScoresStore } from '$lib/types';
 
 export const load: PageServerLoad = async ({ params }) => {
   const { name } = params;
@@ -25,5 +25,15 @@ export const load: PageServerLoad = async ({ params }) => {
     }
   }
 
-  return { name, repoPath: repo.path, result };
+  let improvementPlan = null;
+  if (existsSync('improvement-plans.json')) {
+    try {
+      const plans: ImprovementPlansStore = JSON.parse(await readFile('improvement-plans.json', 'utf-8'));
+      improvementPlan = plans[name] ?? null;
+    } catch {
+      // corrupt improvement-plans.json - show as not generated
+    }
+  }
+
+  return { name, repoPath: repo.path, result, improvementPlan };
 };

@@ -6,6 +6,9 @@
 
   let rescoring = $state(false);
   let rescoreError = $state('');
+  let planning = $state(false);
+  let planError = $state('');
+  let copied = $state(false);
 
   async function rescore() {
     rescoring = true;
@@ -31,21 +34,59 @@
     }
   }
 
+  async function generatePlan() {
+    planning = true;
+    planError = '';
+    copied = false;
+    try {
+      const res = await fetch('/api/improvement-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: data.name, path: data.repoPath })
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        planError = body?.message ?? 'Improvement plan failed';
+        return;
+      }
+
+      window.location.reload();
+    } catch {
+      planError = 'Network error — could not reach server';
+    } finally {
+      planning = false;
+    }
+  }
+
+  async function copyPlan(markdown: string) {
+    await navigator.clipboard.writeText(markdown);
+    copied = true;
+  }
+
   const categoryEntries = Object.keys(CATEGORY_MAX) as (keyof typeof CATEGORY_MAX)[];
 </script>
 
 <main>
   <a class="back-link" href="/">← Dashboard</a>
 
-  <div style="display:flex; justify-content:space-between; align-items:center; margin: 1.5rem 0 1rem;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin: 1.5rem 0 1rem; gap: 0.75rem;">
     <h1 style="margin:0">{data.name}</h1>
-    <button onclick={rescore} disabled={rescoring}>
-      {rescoring ? 'Scoring…' : 'Re-score'}
-    </button>
+    <div class="button-row">
+      <button onclick={rescore} disabled={rescoring}>
+        {rescoring ? 'Scoring…' : 'Re-score'}
+      </button>
+      <button onclick={generatePlan} disabled={planning || !data.result}>
+        {planning ? 'Generating…' : 'Generate Plan'}
+      </button>
+    </div>
   </div>
 
   {#if rescoreError}
     <div class="row-error" style="margin-bottom:1rem">{rescoreError}</div>
+  {/if}
+  {#if planError}
+    <div class="row-error" style="margin-bottom:1rem">{planError}</div>
   {/if}
 
   {#if !data.result}
@@ -109,6 +150,75 @@
             <li style="color:#f39c12">→ {rec}</li>
           {/each}
         </ul>
+      </div>
+    {/if}
+
+    {#if data.improvementPlan}
+      {@const plan = data.improvementPlan}
+      <div class="section">
+        <div class="section-header">
+          <h2>Improvement Plan</h2>
+          <button onclick={() => copyPlan(plan.markdown)}>
+            {copied ? 'Copied' : 'Copy Markdown'}
+          </button>
+        </div>
+        <p class="muted">
+          Generated {new Date(plan.generatedAt).toLocaleString()}
+        </p>
+        <p>{plan.summary}</p>
+
+        <div class="plan-tasks">
+          {#each plan.prioritizedTasks as task, index}
+            <div class="plan-task">
+              <div class="task-heading">
+                <h3>{index + 1}. {task.title}</h3>
+                <span>{CATEGORY_LABELS[task.category]}</span>
+              </div>
+              <div class="task-meta">
+                <span>Impact: {task.impact}</span>
+                <span>Effort: {task.effort}</span>
+              </div>
+              <p>{task.instructions}</p>
+              {#if task.targetFiles.length > 0}
+                <div class="task-list">
+                  <strong>Target files</strong>
+                  <ul>
+                    {#each task.targetFiles as file}
+                      <li>{file}</li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+              {#if task.acceptanceCriteria.length > 0}
+                <div class="task-list">
+                  <strong>Acceptance criteria</strong>
+                  <ul>
+                    {#each task.acceptanceCriteria as item}
+                      <li>{item}</li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+              {#if task.validationCommands.length > 0}
+                <div class="task-list">
+                  <strong>Validation</strong>
+                  <ul>
+                    {#each task.validationCommands as command}
+                      <li><code>{command}</code></li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+
+        <textarea class="markdown-output" readonly value={plan.markdown}></textarea>
+      </div>
+    {:else}
+      <div class="section">
+        <h2>Improvement Plan</h2>
+        <p class="muted">Generate a plan after scoring to create LLM-ready remediation tasks.</p>
       </div>
     {/if}
   {/if}
