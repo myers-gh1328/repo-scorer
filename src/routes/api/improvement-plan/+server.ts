@@ -82,6 +82,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (msg === 'PLAN_PARSE_FAILED') {
 			throw error(500, 'Improvement plan failed — model response could not be parsed');
 		}
+		if (msg.startsWith('PLAN_VALIDATION_FAILED')) {
+			throw error(500, `Improvement plan failed validation: ${msg.replace(/^PLAN_VALIDATION_FAILED:?\s*/, '')}`);
+		}
 		throw error(500, `Improvement plan failed: ${msg}`);
 	}
 };
