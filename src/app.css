@@ -16,6 +16,13 @@ main {
 
 h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
 .subtitle { color: #888; margin-top: 0; margin-bottom: 2rem; }
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
 
 table {
   width: 100%;
@@ -58,6 +65,23 @@ button {
 
 button:hover:not(:disabled) { background: #2a5298; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+.button-link {
+  display: inline-block;
+  background: #1e3a5f;
+  color: #7eb8f7;
+  border: 1px solid #2a5298;
+  padding: 0.4rem 1rem;
+  border-radius: 4px;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.button-link:hover { background: #2a5298; }
+.danger {
+  background: #3a1f1f;
+  border-color: #7a2f2f;
+  color: #ff9c9c;
+}
+.danger:hover:not(:disabled) { background: #5a2929; }
 
 .bar-track {
   background: #1e1e1e;
@@ -101,3 +125,58 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .section { margin-bottom: 2rem; }
 .section h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 0.5rem; }
+.muted { color: #777; }
+.notice {
+  color: #2ecc71;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+.settings-error { margin-bottom: 1rem; }
+.path-cell {
+  color: #999;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1fr) minmax(16rem, 3fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+label span {
+  display: block;
+  color: #888;
+  font-size: 0.8rem;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+input {
+  width: 100%;
+  background: #151515;
+  color: #e0e0e0;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+}
+input:focus {
+  outline: none;
+  border-color: #2a5298;
+}
+
+@media (max-width: 720px) {
+  .page-header,
+  .form-grid {
+    display: block;
+  }
+  .button-link,
+  .form-grid button {
+    margin-top: 0.75rem;
+  }
+  label {
+    display: block;
+    margin-bottom: 0.75rem;
+  }
+}

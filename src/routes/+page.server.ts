@@ -1,15 +1,11 @@
 import type { PageServerLoad } from './$types';
-import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { readRepoConfig } from '$lib/server/repoConfig';
 import type { RepoConfig, ScoresStore } from '$lib/types';
 
 export const load: PageServerLoad = async () => {
-  let repos: RepoConfig[] = [];
-  try {
-    repos = JSON.parse(await readFile('repos.config.json', 'utf-8'));
-  } catch {
-    repos = [];
-  }
+  const repos: RepoConfig[] = await readRepoConfig();
 
   let scores: ScoresStore = {};
   if (existsSync('scores.json')) {

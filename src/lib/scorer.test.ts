@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 
 vi.mock('./mlxClient', () => ({ callMLX: vi.fn() }));
 
-import { scoreRepo } from './scorer';
+import { parseScoreResult, scoreRepo } from './scorer';
 import { callMLX } from './mlxClient';
 
 const mockResult = {
@@ -84,5 +84,80 @@ describe('scoreRepo', () => {
     await expect(
       scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath)
     ).rejects.toThrow('PARSE_FAILED');
+  });
+
+  it('asks the model to repair malformed output on retry', async () => {
+    vi.mocked(callMLX)
+      .mockResolvedValueOnce('not valid json {{{{')
+      .mockResolvedValueOnce(JSON.stringify(mockResult));
+
+    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
+
+    expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('Convert the text below into one valid JSON object');
+    expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('not valid json');
+  });
+});
+
+describe('parseScoreResult', () => {
+  it('parses raw JSON', () => {
+    expect(parseScoreResult(JSON.stringify(mockResult)).score).toBe(72);
+  });
+
+  it('parses fenced JSON', () => {
+    const raw = `\`\`\`json\n${JSON.stringify(mockResult)}\n\`\`\``;
+    expect(parseScoreResult(raw).band).toBe('Operational');
+  });
+
+  it('extracts the first complete JSON object from surrounding text', () => {
+    const raw = `Here is the score:\n${JSON.stringify(mockResult)}\nDone.`;
+    expect(parseScoreResult(raw).primaryLanguage).toBe('TypeScript');
+  });
+
+  it('normalizes numeric strings and recomputes score and band from categories', () => {
+    const raw = JSON.stringify({
+      ...mockResult,
+      score: 999,
+      band: 'Mature',
+      categories: {
+        ...mockResult.categories,
+        persistent_guidance: '12'
+      }
+    });
+
+    const result = parseScoreResult(raw);
+
+    expect(result.categories.persistent_guidance).toBe(12);
+    expect(result.score).toBe(72);
+    expect(result.band).toBe('Operational');
+  });
+
+  it('defaults optional string arrays when the model omits them', () => {
+    const { qualityFlags, riskFlags, recommendations, ...withoutArrays } = mockResult;
+
+    const result = parseScoreResult(JSON.stringify(withoutArrays));
+
+    expect(result.qualityFlags).toEqual([]);
+    expect(result.riskFlags).toEqual([]);
+    expect(result.recommendations).toEqual([]);
+  });
+
+  it('clamps category values to their allowed ranges', () => {
+    const raw = JSON.stringify({
+      ...mockResult,
+      categories: {
+        ...mockResult.categories,
+        persistent_guidance: 999,
+        versioning_provenance: -5
+      }
+    });
+
+    const result = parseScoreResult(raw);
+
+    expect(result.categories.persistent_guidance).toBe(15);
+    expect(result.categories.versioning_provenance).toBe(0);
+  });
+
+  it('rejects responses missing the categories object', () => {
+    expect(() => parseScoreResult(JSON.stringify({ score: 10 }))).toThrow('categories');
   });
 });

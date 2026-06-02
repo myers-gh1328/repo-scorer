@@ -2,17 +2,13 @@ import type { PageServerLoad } from './$types';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { error } from '@sveltejs/kit';
+import { readRepoConfig } from '$lib/server/repoConfig';
 import type { RepoConfig, ScoresStore } from '$lib/types';
 
 export const load: PageServerLoad = async ({ params }) => {
   const { name } = params;
 
-  let repos: RepoConfig[] = [];
-  try {
-    repos = JSON.parse(await readFile('repos.config.json', 'utf-8'));
-  } catch {
-    throw error(500, 'repos.config.json not found or invalid');
-  }
+  const repos: RepoConfig[] = await readRepoConfig();
   const repo = repos.find(r => r.name === name);
 
   if (!repo) {
