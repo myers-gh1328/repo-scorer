@@ -85,6 +85,27 @@ export async function exportImprovementPlanToRepo(repoPath: string, plan: Improv
 	return { planPath: EXPORTED_PLAN_PATH, agentsPath: 'AGENTS.md' };
 }
 
+export async function markImprovementPlanExported(
+	plansPath: string,
+	repoName: string,
+	exported: { planPath: string; agentsPath: string }
+): Promise<ImprovementPlan> {
+	const plans: ImprovementPlansStore = JSON.parse(await readFile(plansPath, 'utf-8'));
+	const plan = plans[repoName];
+	if (!plan) {
+		throw new Error('PLAN_NOT_FOUND');
+	}
+	const updated = {
+		...plan,
+		exportedAt: new Date().toISOString(),
+		exportedPlanPath: exported.planPath,
+		exportedAgentsPath: exported.agentsPath
+	};
+	plans[repoName] = updated;
+	await writeFile(plansPath, JSON.stringify(plans, null, 2));
+	return updated;
+}
+
 function tryParseImprovementPlan(raw: string, repoName: string, score: ScoreResult): ImprovementPlan | null {
 	try {
 		return parseImprovementPlan(raw, repoName, score);
@@ -117,6 +138,9 @@ function normalizeImprovementPlan(value: unknown, repoName: string, score: Score
 
 	const plan: ImprovementPlan = {
 		generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt : '',
+		exportedAt: typeof value.exportedAt === 'string' ? value.exportedAt : undefined,
+		exportedPlanPath: typeof value.exportedPlanPath === 'string' ? value.exportedPlanPath : undefined,
+		exportedAgentsPath: typeof value.exportedAgentsPath === 'string' ? value.exportedAgentsPath : undefined,
 		repoName,
 		summary,
 		currentScore: score.score,

@@ -3,7 +3,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtemp } from 'node:fs/promises';
-import { exportImprovementPlanToRepo, parseImprovementPlan } from './improvementPlanner';
+import {
+	exportImprovementPlanToRepo,
+	markImprovementPlanExported,
+	parseImprovementPlan
+} from './improvementPlanner';
 import type { ScoreResult } from './types';
 
 const score: ScoreResult = {
@@ -68,6 +72,22 @@ describe('parseImprovementPlan', () => {
 	it('rejects plans without valid tasks', () => {
 		expect(() => parseImprovementPlan(JSON.stringify({ summary: 'no tasks' }), 'repo-scorer', score))
 			.toThrow('task');
+	});
+
+	it('marks a stored plan as exported', async () => {
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		const plansPath = join(outDir, 'improvement-plans.json');
+		const parsed = parseImprovementPlan(JSON.stringify(plan), 'repo-scorer', score);
+		await writeFile(plansPath, JSON.stringify({ 'repo-scorer': parsed }));
+
+		const updated = await markImprovementPlanExported(plansPath, 'repo-scorer', {
+			planPath: '.agent/improvement-plan.md',
+			agentsPath: 'AGENTS.md'
+		});
+
+		expect(updated.exportedAt).toBeTruthy();
+		expect(updated.exportedPlanPath).toBe('.agent/improvement-plan.md');
+		expect(updated.exportedAgentsPath).toBe('AGENTS.md');
 	});
 });
 

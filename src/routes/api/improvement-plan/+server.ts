@@ -4,7 +4,11 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { readAppSettings } from '$lib/server/appSettings';
 import { readRepoConfig } from '$lib/server/repoConfig';
-import { exportImprovementPlanToRepo, generateImprovementPlan } from '$lib/improvementPlanner';
+import {
+	exportImprovementPlanToRepo,
+	generateImprovementPlan,
+	markImprovementPlanExported
+} from '$lib/improvementPlanner';
 import type { ImprovementPlansStore, RepoConfig, ScoresStore } from '$lib/types';
 
 const PLANS_PATH = 'improvement-plans.json';
@@ -39,7 +43,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (!plan) {
 			throw error(400, 'Generate an improvement plan before exporting it');
 		}
-		return json(await exportImprovementPlanToRepo(path, plan));
+		const exported = await exportImprovementPlanToRepo(path, plan);
+		return json({ ...(await markImprovementPlanExported(PLANS_PATH, name, exported)), exported });
 	}
 
 	if (action !== 'generate') {
@@ -68,7 +73,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const plan = await generateImprovementPlan(name, path, rubric, score, { baseUrl: mlxBaseUrl }, PLANS_PATH);
 		const exported = await exportImprovementPlanToRepo(path, plan);
-		return json({ ...plan, exported });
+		return json({ ...(await markImprovementPlanExported(PLANS_PATH, name, exported)), exported });
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		if (msg.startsWith('MLX_UNREACHABLE')) {
