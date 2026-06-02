@@ -257,4 +257,32 @@ describe('generateImprovementPlan', () => {
 		expect(result.prioritizedTasks).toHaveLength(3);
 		expect(result.summary).not.toContain('fallback improvement plan');
 	});
+
+	it('repairs plans that reference nonexistent repo paths', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		await mkdir(join(repoDir, 'src'), { recursive: true });
+		await writeFile(join(repoDir, 'src', 'RealFile.cs'), 'class RealFile {}');
+		const invalidReferencePlan = {
+			...validPlan,
+			prioritizedTasks: [{
+				...validPlan.prioritizedTasks[0],
+				instructions: 'Update src/DefinitelyMissing.cs with concrete agent-facing guidance, then compare it against src/RealFile.cs so the implementation follows existing conventions.'
+			}, ...validPlan.prioritizedTasks.slice(1)]
+		};
+		vi.mocked(callMLX)
+			.mockResolvedValueOnce(JSON.stringify(invalidReferencePlan))
+			.mockResolvedValueOnce(JSON.stringify(validPlan));
+
+		await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('src/DefinitelyMissing.cs');
+	});
 });
