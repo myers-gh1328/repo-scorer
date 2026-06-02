@@ -257,7 +257,7 @@
             {planning ? 'Generating…' : 'Generate Plan'}
           </button>
         </div>
-        <p class="muted">Generate a plan after scoring to create LLM-ready remediation tasks.</p>
+        <p class="muted">Generate a plan after scoring to create LLM-ready remediation tasks and write them into the target repo.</p>
       </div>
     {/if}
   {/if}

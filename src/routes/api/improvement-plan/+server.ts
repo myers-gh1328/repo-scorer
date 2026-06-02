@@ -66,7 +66,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const { mlxBaseUrl } = await readAppSettings();
 	try {
-		return json(await generateImprovementPlan(name, path, rubric, score, { baseUrl: mlxBaseUrl }, PLANS_PATH));
+		const plan = await generateImprovementPlan(name, path, rubric, score, { baseUrl: mlxBaseUrl }, PLANS_PATH);
+		const exported = await exportImprovementPlanToRepo(path, plan);
+		return json({ ...plan, exported });
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		if (msg.startsWith('MLX_UNREACHABLE')) {
