@@ -44,7 +44,7 @@ export async function generateImprovementPlan(
 	}
 
 	if (!plan || validationErrors.length > 0) {
-		plan = fallbackImprovementPlan(repoName, score);
+		throw new Error(`PLAN_VALIDATION_FAILED: ${validationErrors.join('; ')}`);
 	}
 
 	plan.generatedAt = new Date().toISOString();
@@ -168,67 +168,6 @@ function normalizeImprovementPlan(value: unknown, repoName: string, score: Score
 	};
 	plan.markdown = renderImprovementMarkdown(plan);
 	return plan;
-}
-
-function fallbackImprovementPlan(repoName: string, score: ScoreResult): ImprovementPlan {
-	const weakestCategories = CATEGORY_KEYS
-		.filter(key => score.categories[key] < CATEGORY_MAX[key])
-		.sort((a, b) => score.categories[a] / CATEGORY_MAX[a] - score.categories[b] / CATEGORY_MAX[b])
-		.slice(0, 5);
-	const recommendations = score.recommendations.length > 0
-		? score.recommendations
-		: weakestCategories.map(key => `Improve ${CATEGORY_LABELS[key]} with concrete, repo-specific guidance and validation.`);
-	const prioritizedTasks = recommendations.slice(0, 5).map((recommendation, index): ImprovementTask => {
-		const category = weakestCategories[index] ?? weakestCategories[0] ?? 'persistent_guidance';
-		return {
-			title: recommendation.replace(/[.!?]+$/, '').slice(0, 80),
-			category,
-			impact: index < 2 ? 'high' : 'medium',
-			effort: 'medium',
-			targetFiles: fallbackTargetFiles(category),
-			instructions: recommendation,
-			acceptanceCriteria: [
-				'The improvement is documented in repo-relative files',
-				'The guidance is specific to this repository',
-				'Validation commands or manual verification steps are included'
-			],
-			validationCommands: []
-		};
-	});
-	const plan: ImprovementPlan = {
-		generatedAt: '',
-		repoName,
-		summary: `Generated a fallback improvement plan from the score recommendations because the model did not return a valid structured plan.`,
-		currentScore: score.score,
-		currentBand: score.band,
-		strongestCategories: CATEGORY_KEYS
-			.sort((a, b) => score.categories[b] / CATEGORY_MAX[b] - score.categories[a] / CATEGORY_MAX[a])
-			.slice(0, 3),
-		weakestCategories,
-		prioritizedTasks,
-		markdown: ''
-	};
-	plan.markdown = renderImprovementMarkdown(plan);
-	return plan;
-}
-
-function fallbackTargetFiles(category: keyof CategoryScores): string[] {
-	switch (category) {
-		case 'persistent_guidance':
-		case 'onboarding_discoverability':
-			return ['AGENTS.md'];
-		case 'scoped_rules':
-			return ['.agent/rules/repo-guidance.md'];
-		case 'skills':
-			return ['.agent/skills/repo-improvement/SKILL.md'];
-		case 'specialized_agents':
-			return ['.agent/agents/repo-reviewer.md'];
-		case 'ci_pr_automation':
-		case 'validation_reproducibility':
-			return ['AGENTS.md'];
-		default:
-			return ['.agent/improvement-plan.md'];
-	}
 }
 
 function validateImprovementPlan(plan: ImprovementPlan, aiTooling: AiTooling, inventory: RepoInventory): string[] {

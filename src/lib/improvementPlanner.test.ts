@@ -192,12 +192,12 @@ describe('generateImprovementPlan', () => {
 		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.agent/rules/backend.md');
 	});
 
-	it('falls back to score recommendations when the model cannot repair its output', async () => {
+	it('fails when the model cannot repair invalid output', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		vi.mocked(callMLX).mockResolvedValue('not valid json');
 
-		const result = await generateImprovementPlan(
+		await expect(generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
 			'rubric',
@@ -207,10 +207,7 @@ describe('generateImprovementPlan', () => {
 			},
 			{ baseUrl: 'http://localhost:8080' },
 			join(outDir, 'improvement-plans.json')
-		);
-
-		expect(result.summary).toContain('fallback improvement plan');
-		expect(result.prioritizedTasks[0].instructions).toContain('Add portable scoped guidance');
+		)).rejects.toThrow('PLAN_VALIDATION_FAILED');
 	});
 
 	it('keeps Cursor recommendations when Cursor is selected', async () => {
@@ -255,7 +252,7 @@ describe('generateImprovementPlan', () => {
 
 		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('Validation errors to fix');
 		expect(result.prioritizedTasks).toHaveLength(3);
-		expect(result.summary).not.toContain('fallback improvement plan');
+		expect(result.summary).not.toContain('fallback');
 	});
 
 	it('repairs plans that reference nonexistent repo paths', async () => {
