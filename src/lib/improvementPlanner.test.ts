@@ -82,6 +82,15 @@ describe('parseImprovementPlan', () => {
 			.toThrow('task');
 	});
 
+	it('accepts tasks under a tasks key', () => {
+		const result = parseImprovementPlan(JSON.stringify({
+			summary: 'Use alternate task key.',
+			tasks: plan.prioritizedTasks
+		}), 'repo-scorer', score);
+
+		expect(result.prioritizedTasks).toHaveLength(1);
+	});
+
 	it('marks a stored plan as exported', async () => {
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		const plansPath = join(outDir, 'improvement-plans.json');
@@ -144,6 +153,27 @@ describe('generateImprovementPlan', () => {
 
 		expect(result.prioritizedTasks[0].title).not.toContain('Cursor');
 		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.agent/rules/backend.md');
+	});
+
+	it('falls back to score recommendations when the model cannot repair its output', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		vi.mocked(callMLX).mockResolvedValue('not valid json');
+
+		const result = await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			{
+				...score,
+				recommendations: ['Add portable scoped guidance for this repository']
+			},
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(result.summary).toContain('fallback improvement plan');
+		expect(result.prioritizedTasks[0].instructions).toContain('Add portable scoped guidance');
 	});
 
 	it('keeps Cursor recommendations when Cursor is selected', async () => {
