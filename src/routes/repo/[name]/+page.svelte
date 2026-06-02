@@ -251,7 +251,12 @@
       </div>
     {:else}
       <div class="section">
-        <h2>Improvement Plan</h2>
+        <div class="section-header">
+          <h2>Improvement Plan</h2>
+          <button onclick={generatePlan} disabled={planning}>
+            {planning ? 'Generating…' : 'Generate Plan'}
+          </button>
+        </div>
         <p class="muted">Generate a plan after scoring to create LLM-ready remediation tasks.</p>
       </div>
     {/if}
