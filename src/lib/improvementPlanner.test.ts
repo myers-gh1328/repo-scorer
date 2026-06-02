@@ -52,6 +52,7 @@ describe('parseImprovementPlan', () => {
 		expect(result.currentScore).toBe(34);
 		expect(result.prioritizedTasks[0].category).toBe('scoped_rules');
 		expect(result.markdown).toContain('# Repo Improvement Plan: repo-scorer');
+		expect(result.markdown).toContain('You are an AI coding agent working in this repository');
 		expect(result.markdown).toContain('.cursor/rules/backend.mdc');
 	});
 
@@ -65,4 +66,3 @@ describe('parseImprovementPlan', () => {
 			.toThrow('task');
 	});
 });
-
