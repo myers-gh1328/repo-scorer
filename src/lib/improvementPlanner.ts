@@ -1,4 +1,6 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { scanRepo } from './scanner';
 import { callMLX } from './mlxClient';
 import { CATEGORY_LABELS, CATEGORY_MAX } from './types';
@@ -13,6 +15,11 @@ import type {
 
 const CATEGORY_KEYS = Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[];
 const IMPACT_VALUES = ['high', 'medium', 'low'] as const;
+const EXPORTED_PLAN_PATH = '.agent/improvement-plan.md';
+const AGENTS_POINTER = `## Agent Improvement Plan
+
+This repository has a generated agent-facing improvement plan at \`${EXPORTED_PLAN_PATH}\`. Review it before making repo maturity improvements.
+`;
 
 export async function generateImprovementPlan(
 	repoName: string,
@@ -64,6 +71,18 @@ export function parseImprovementPlan(raw: string, repoName: string, score: Score
 		}
 	}
 	throw lastError instanceof Error ? lastError : new Error('Invalid improvement plan JSON');
+}
+
+export async function exportImprovementPlanToRepo(repoPath: string, plan: ImprovementPlan): Promise<{ planPath: string; agentsPath: string }> {
+	const agentDir = join(repoPath, '.agent');
+	const planPath = join(repoPath, EXPORTED_PLAN_PATH);
+	const agentsPath = join(repoPath, 'AGENTS.md');
+
+	await mkdir(agentDir, { recursive: true });
+	await writeFile(planPath, `${plan.markdown.trim()}\n`);
+	await ensureAgentsPointer(agentsPath);
+
+	return { planPath: EXPORTED_PLAN_PATH, agentsPath: 'AGENTS.md' };
 }
 
 function tryParseImprovementPlan(raw: string, repoName: string, score: ScoreResult): ImprovementPlan | null {
@@ -174,6 +193,20 @@ function renderImprovementMarkdown(plan: ImprovementPlan): string {
 	});
 
 	return lines.join('\n');
+}
+
+async function ensureAgentsPointer(agentsPath: string): Promise<void> {
+	let content = '';
+	if (existsSync(agentsPath)) {
+		content = await readFile(agentsPath, 'utf-8');
+	}
+	if (content.includes(EXPORTED_PLAN_PATH)) {
+		return;
+	}
+	const next = content.trim()
+		? `${content.trim()}\n\n${AGENTS_POINTER}`
+		: `# Agent Guidance\n\n${AGENTS_POINTER}`;
+	await writeFile(agentsPath, next);
 }
 
 function buildImprovementPrompt(
