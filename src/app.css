@@ -144,6 +144,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   gap: 0.75rem;
   align-items: end;
 }
+.settings-row {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
 label span {
   display: block;
   color: #888;
@@ -168,11 +174,13 @@ input:focus {
 
 @media (max-width: 720px) {
   .page-header,
-  .form-grid {
+  .form-grid,
+  .settings-row {
     display: block;
   }
   .button-link,
-  .form-grid button {
+  .form-grid button,
+  .settings-row button {
     margin-top: 0.75rem;
   }
   label {

@@ -8,6 +8,7 @@
 	let initialized = $state(false);
 	let manualName = $state('');
 	let manualPath = $state('');
+	let mlxBaseUrl = $state('');
 	let saving = $state('');
 	let message = $state('');
 	let formError = $state('');
@@ -15,6 +16,7 @@
 	$effect(() => {
 		if (!initialized) {
 			configured = data.configured;
+			mlxBaseUrl = data.settings.mlxBaseUrl;
 			initialized = true;
 		}
 	});
@@ -56,6 +58,30 @@
 		const name = manualName.trim() || path.split('/').filter(Boolean).at(-1) || '';
 		return updateRepo('add', { name, path });
 	}
+
+	async function saveSettings() {
+		saving = 'settings';
+		message = '';
+		formError = '';
+		try {
+			const res = await fetch('/api/settings', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ mlxBaseUrl })
+			});
+			const body = await res.json().catch(() => null);
+			if (!res.ok) {
+				formError = body?.message ?? 'Could not save LLM settings';
+				return;
+			}
+			mlxBaseUrl = body.mlxBaseUrl;
+			message = 'Saved LLM settings';
+		} catch {
+			formError = 'Network error while saving LLM settings';
+		} finally {
+			saving = '';
+		}
+	}
 </script>
 
 <main>
@@ -73,6 +99,19 @@
 	{#if formError}
 		<div class="row-error settings-error">{formError}</div>
 	{/if}
+
+	<section class="section">
+		<h2>LLM Server</h2>
+		<div class="settings-row">
+			<label>
+				<span>Base URL</span>
+				<input bind:value={mlxBaseUrl} placeholder="http://192.168.4.67:1234" />
+			</label>
+			<button disabled={!mlxBaseUrl.trim() || saving === 'settings'} onclick={saveSettings}>
+				{saving === 'settings' ? 'Saving…' : 'Save'}
+			</button>
+		</div>
+	</section>
 
 	<section class="section">
 		<h2>Configured Repositories</h2>
