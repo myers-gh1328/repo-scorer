@@ -82,4 +82,27 @@ describe('callMLX', () => {
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.model).toBe('gemma-4-27b');
   });
+
+  it('sends response_format when provided', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: '{}' } }] })
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    await callMLX({
+      baseUrl: 'http://localhost:8080',
+      responseFormat: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'test',
+          schema: { type: 'object' }
+        }
+      }
+    }, 'prompt');
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.response_format.type).toBe('json_schema');
+    expect(body.response_format.json_schema.name).toBe('test');
+  });
 });

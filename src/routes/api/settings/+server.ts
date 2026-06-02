@@ -10,9 +10,10 @@ export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json().catch(() => null);
 	const mlxBaseUrl = typeof body?.mlxBaseUrl === 'string' ? body.mlxBaseUrl : '';
 	const aiTooling = typeof body?.aiTooling === 'string' ? body.aiTooling : 'generic';
+	const useJsonSchema = Boolean(body?.useJsonSchema);
 
 	try {
-		return json(await writeAppSettings({ mlxBaseUrl, aiTooling }));
+		return json(await writeAppSettings({ mlxBaseUrl, aiTooling, useJsonSchema }));
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		throw error(400, msg);

@@ -160,9 +160,23 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .settings-row {
   display: grid;
-  grid-template-columns: minmax(16rem, 1fr) minmax(10rem, 0.45fr) auto;
+  grid-template-columns: minmax(16rem, 1fr) minmax(10rem, 0.45fr) auto auto;
   gap: 0.75rem;
   align-items: end;
+}
+.checkbox-label {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding-bottom: 0.45rem;
+}
+.checkbox-label input {
+  width: auto;
+}
+.checkbox-label span {
+  margin: 0;
+  text-transform: none;
+  letter-spacing: 0;
 }
 label span {
   display: block;

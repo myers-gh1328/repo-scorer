@@ -8,23 +8,28 @@ export type AiTooling = typeof AI_TOOLING_VALUES[number];
 export interface AppSettings {
 	mlxBaseUrl: string;
 	aiTooling: AiTooling;
+	useJsonSchema: boolean;
 }
 
 export async function readAppSettings(): Promise<AppSettings> {
 	return {
 		mlxBaseUrl: await readEnvValue('MLX_BASE_URL') ?? DEFAULT_MLX_BASE_URL,
-		aiTooling: normalizeAiTooling(await readEnvValue('AI_TOOLING') ?? 'generic')
+		aiTooling: normalizeAiTooling(await readEnvValue('AI_TOOLING') ?? 'generic'),
+		useJsonSchema: normalizeBoolean(await readEnvValue('USE_JSON_SCHEMA') ?? 'false')
 	};
 }
 
 export async function writeAppSettings(settings: AppSettings): Promise<AppSettings> {
 	const mlxBaseUrl = normalizeBaseUrl(settings.mlxBaseUrl);
 	const aiTooling = normalizeAiTooling(settings.aiTooling);
+	const useJsonSchema = Boolean(settings.useJsonSchema);
 	await writeEnvValue('MLX_BASE_URL', mlxBaseUrl);
 	await writeEnvValue('AI_TOOLING', aiTooling);
+	await writeEnvValue('USE_JSON_SCHEMA', String(useJsonSchema));
 	process.env.MLX_BASE_URL = mlxBaseUrl;
 	process.env.AI_TOOLING = aiTooling;
-	return { mlxBaseUrl, aiTooling };
+	process.env.USE_JSON_SCHEMA = String(useJsonSchema);
+	return { mlxBaseUrl, aiTooling, useJsonSchema };
 }
 
 export function normalizeBaseUrl(value: string): string {
@@ -46,6 +51,10 @@ export function normalizeBaseUrl(value: string): string {
 
 export function normalizeAiTooling(value: string): AiTooling {
 	return AI_TOOLING_VALUES.includes(value as AiTooling) ? value as AiTooling : 'generic';
+}
+
+function normalizeBoolean(value: string): boolean {
+	return value.toLowerCase() === 'true' || value === '1' || value.toLowerCase() === 'yes';
 }
 
 async function readEnvValue(key: string): Promise<string | null> {

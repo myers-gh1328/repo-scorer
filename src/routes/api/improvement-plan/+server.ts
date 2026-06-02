@@ -9,6 +9,7 @@ import {
 	generateImprovementPlan,
 	markImprovementPlanExported
 } from '$lib/improvementPlanner';
+import { improvementPlanResponseFormat } from '$lib/responseSchemas';
 import type { ImprovementPlansStore, RepoConfig, ScoresStore } from '$lib/types';
 
 const PLANS_PATH = 'improvement-plans.json';
@@ -69,9 +70,12 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(400, 'Score this repo before generating an improvement plan');
 	}
 
-	const { mlxBaseUrl, aiTooling } = await readAppSettings();
+	const { mlxBaseUrl, aiTooling, useJsonSchema } = await readAppSettings();
 	try {
-		const plan = await generateImprovementPlan(name, path, rubric, score, { baseUrl: mlxBaseUrl }, PLANS_PATH, aiTooling);
+		const plan = await generateImprovementPlan(name, path, rubric, score, {
+			baseUrl: mlxBaseUrl,
+			responseFormat: useJsonSchema ? improvementPlanResponseFormat : undefined
+		}, PLANS_PATH, aiTooling);
 		const exported = await exportImprovementPlanToRepo(path, plan);
 		return json({ ...(await markImprovementPlanExported(PLANS_PATH, name, exported)), exported });
 	} catch (e) {

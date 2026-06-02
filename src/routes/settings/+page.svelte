@@ -10,6 +10,7 @@
 	let manualPath = $state('');
 	let mlxBaseUrl = $state('');
 	let aiTooling = $state('generic');
+	let useJsonSchema = $state(false);
 	let saving = $state('');
 	let message = $state('');
 	let formError = $state('');
@@ -19,6 +20,7 @@
 			configured = data.configured;
 			mlxBaseUrl = data.settings.mlxBaseUrl;
 			aiTooling = data.settings.aiTooling;
+			useJsonSchema = data.settings.useJsonSchema;
 			initialized = true;
 		}
 	});
@@ -69,7 +71,7 @@
 			const res = await fetch('/api/settings', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ mlxBaseUrl, aiTooling })
+				body: JSON.stringify({ mlxBaseUrl, aiTooling, useJsonSchema })
 			});
 			const body = await res.json().catch(() => null);
 			if (!res.ok) {
@@ -78,6 +80,7 @@
 			}
 			mlxBaseUrl = body.mlxBaseUrl;
 			aiTooling = body.aiTooling;
+			useJsonSchema = body.useJsonSchema;
 			message = 'Saved LLM settings';
 		} catch {
 			formError = 'Network error while saving LLM settings';
@@ -119,6 +122,10 @@
 					<option value="copilot">GitHub Copilot</option>
 					<option value="windsurf">Windsurf</option>
 				</select>
+			</label>
+			<label class="checkbox-label">
+				<input type="checkbox" bind:checked={useJsonSchema} />
+				<span>JSON schema</span>
 			</label>
 			<button disabled={!mlxBaseUrl.trim() || saving === 'settings'} onclick={saveSettings}>
 				{saving === 'settings' ? 'Saving…' : 'Save'}
