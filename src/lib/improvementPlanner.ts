@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { scanRepo } from './scanner';
@@ -32,14 +32,15 @@ export async function generateImprovementPlan(
 	aiTooling: AiTooling = 'generic'
 ): Promise<ImprovementPlan> {
 	const scan = await scanRepo(repoPath);
-	const raw = await callPlanModel(mlxConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, aiTooling));
+	const inventory = await collectRepoInventory(repoPath);
+	const raw = await callPlanModel(mlxConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, inventory, aiTooling));
 	let plan = prepareGeneratedPlan(tryParseImprovementPlan(raw, repoName, score), aiTooling);
-	let validationErrors = plan ? validateImprovementPlan(plan, aiTooling) : ['Response was not valid JSON matching the required plan schema.'];
+	let validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Response was not valid JSON matching the required plan schema.'];
 
 	if (!plan || validationErrors.length > 0) {
 		const repaired = await callPlanModel(mlxConfig, buildRepairPrompt(raw, repoName, score, validationErrors, aiTooling));
 		plan = prepareGeneratedPlan(tryParseImprovementPlan(repaired, repoName, score), aiTooling);
-		validationErrors = plan ? validateImprovementPlan(plan, aiTooling) : ['Repaired response was not valid JSON matching the required plan schema.'];
+		validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Repaired response was not valid JSON matching the required plan schema.'];
 	}
 
 	if (!plan || validationErrors.length > 0) {
@@ -230,7 +231,7 @@ function fallbackTargetFiles(category: keyof CategoryScores): string[] {
 	}
 }
 
-function validateImprovementPlan(plan: ImprovementPlan, aiTooling: AiTooling): string[] {
+function validateImprovementPlan(plan: ImprovementPlan, aiTooling: AiTooling, inventory: RepoInventory): string[] {
 	const errors: string[] = [];
 	if (plan.prioritizedTasks.length < 3 || plan.prioritizedTasks.length > 5) {
 		errors.push('prioritizedTasks must contain 3 to 5 tasks.');
@@ -259,9 +260,83 @@ function validateImprovementPlan(plan: ImprovementPlan, aiTooling: AiTooling): s
 		if (aiTooling === 'generic' && task.targetFiles.some(isVendorSpecificPath)) {
 			errors.push(`${label} uses vendor-specific target files while AI tooling is generic.`);
 		}
+		const missingReferences = referencedRepoPaths(task)
+			.filter(path => !isPlannedTarget(path, task.targetFiles))
+			.filter(path => !inventoryHasPath(inventory, path));
+		if (missingReferences.length > 0) {
+			errors.push(`${label} references paths that were not found in the repository inventory: ${missingReferences.join(', ')}.`);
+		}
 	});
 
 	return errors;
+}
+
+interface RepoInventory {
+	files: Set<string>;
+	dirs: Set<string>;
+	list: string[];
+}
+
+async function collectRepoInventory(repoPath: string): Promise<RepoInventory> {
+	const files = new Set<string>();
+	const dirs = new Set<string>();
+	await collectInventoryDir(repoPath, repoPath, files, dirs);
+	const list = [...files, ...[...dirs].map(dir => `${dir}/`)].sort().slice(0, 500);
+	return { files, dirs, list };
+}
+
+async function collectInventoryDir(root: string, current: string, files: Set<string>, dirs: Set<string>, depth = 0): Promise<void> {
+	if (depth > 6) return;
+	let entries: string[];
+	try {
+		entries = await readdir(current);
+	} catch {
+		return;
+	}
+	for (const entry of entries) {
+		if (['.git', 'node_modules', '.svelte-kit', 'bin', 'obj', '.terraform'].includes(entry)) continue;
+		const full = join(current, entry);
+		try {
+			const s = await stat(full);
+			const relative = full.slice(root.length + 1);
+			if (s.isDirectory()) {
+				dirs.add(relative);
+				await collectInventoryDir(root, full, files, dirs, depth + 1);
+			} else if (s.isFile()) {
+				files.add(relative);
+			}
+		} catch {
+			// skip unreadable paths
+		}
+	}
+}
+
+function referencedRepoPaths(task: ImprovementTask): string[] {
+	const text = [
+		task.instructions,
+		...task.acceptanceCriteria,
+		...task.validationCommands
+	].join('\n');
+	const matches = text.match(/(?:`([^`]+)`|((?:\.?[A-Za-z0-9_-]+\/)[A-Za-z0-9_./*{}-]+)|([A-Za-z0-9_.-]+\.(?:md|json|yml|yaml|cs|csproj|slnx|tf|sh)))/g) ?? [];
+	return [...new Set(matches
+		.map(match => match.replace(/^`|`$/g, '').trim())
+		.map(path => path.replace(/^\.\//, '').replace(/\*\*?\/?$/g, '').replace(/\/$/, ''))
+		.filter(path => path.length > 0)
+		.filter(path => !path.includes(' '))
+		.filter(path => !path.startsWith('http')))];
+}
+
+function isPlannedTarget(path: string, targetFiles: string[]): boolean {
+	return targetFiles.some(target => path === target || path.startsWith(`${target.replace(/\/$/, '')}/`));
+}
+
+function inventoryHasPath(inventory: RepoInventory, path: string): boolean {
+	if (inventory.files.has(path) || inventory.dirs.has(path)) return true;
+	if (path.includes('*')) {
+		const prefix = path.split('*')[0].replace(/\/$/, '');
+		return [...inventory.files, ...inventory.dirs].some(item => item.startsWith(prefix));
+	}
+	return false;
 }
 
 function isConcreteTargetFile(file: string): boolean {
@@ -311,7 +386,8 @@ function rewriteTaskForTooling(task: ImprovementTask, aiTooling: AiTooling): Imp
 		title: replaceVendorText(task.title, aiTooling),
 		targetFiles,
 		instructions: replaceVendorText(task.instructions, aiTooling),
-		acceptanceCriteria: task.acceptanceCriteria.map(item => replaceVendorText(item, aiTooling))
+		acceptanceCriteria: task.acceptanceCriteria.map(item => replaceVendorText(item, aiTooling)),
+		validationCommands: task.validationCommands.map(item => replaceVendorText(item, aiTooling))
 	};
 }
 
@@ -348,6 +424,11 @@ function rewriteVendorSpecificPath(path: string, aiTooling: AiTooling): string {
 }
 
 function replaceVendorText(value: string, aiTooling: AiTooling): string {
+	if (aiTooling === 'cursor') {
+		return value
+			.replace(/\.agent\/rules\/([A-Za-z0-9_./-]+)\.md\b/g, '.cursor/rules/$1.mdc')
+			.replace(/\.agent\//g, '.cursor/');
+	}
 	if (aiTooling !== 'generic') return value;
 	return value
 		.replace(/\bCursor\b/g, 'agent')
@@ -421,6 +502,7 @@ function buildImprovementPrompt(
 	rubric: string,
 	score: ScoreResult,
 	files: { relativePath: string; content: string }[],
+	inventory: RepoInventory,
 	aiTooling: AiTooling
 ): string {
 	const evidence = files.length === 0
@@ -440,6 +522,10 @@ ${rubric}
 
 ## REPOSITORY EVIDENCE
 ${evidence}
+
+## REPOSITORY PATH INVENTORY
+Use these paths when referencing existing files or directories. Do not cite existing repo paths that are absent from this inventory.
+${inventory.list.map(path => `- ${path}`).join('\n')}
 
 ## TASK
 Return ONLY a JSON object that a human or coding LLM can use to improve the repository.
@@ -474,6 +560,8 @@ Rules:
 - If AI TOOLING TARGET is generic, do not recommend tool/vendor-specific files such as .cursor/**, .claude/**, .windsurf/**, or .github/copilot-instructions.md.
 - If AI TOOLING TARGET names a specific tool, recommend that tool's conventional files where appropriate.
 - Every task must have concrete repo-relative targetFiles.
+- References to existing source, test, docs, schemas, or config files must use paths present in REPOSITORY PATH INVENTORY.
+- New files are allowed only when they are listed in targetFiles.
 - Every task must have at least two acceptanceCriteria.
 - Every task must have at least one validationCommands entry, even if it is a manual verification command such as "test -f AGENTS.md".
 - Tie each task to one weak or improvable category.
