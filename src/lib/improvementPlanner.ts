@@ -139,6 +139,8 @@ function renderImprovementMarkdown(plan: ImprovementPlan): string {
 	const lines = [
 		`# Repo Improvement Plan: ${plan.repoName}`,
 		'',
+		'You are an AI coding agent working in this repository. Complete the tasks below in order. For each task, make the smallest safe code or documentation changes, run the validation commands, and report what changed.',
+		'',
 		'## Current Score',
 		`Score: ${plan.currentScore}`,
 		`Band: ${plan.currentBand}`,
@@ -304,4 +306,3 @@ function extractJsonObject(raw: string): string | null {
 	}
 	return null;
 }
-
