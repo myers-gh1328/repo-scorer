@@ -9,6 +9,7 @@
 	let manualName = $state('');
 	let manualPath = $state('');
 	let mlxBaseUrl = $state('');
+	let aiTooling = $state('generic');
 	let saving = $state('');
 	let message = $state('');
 	let formError = $state('');
@@ -17,6 +18,7 @@
 		if (!initialized) {
 			configured = data.configured;
 			mlxBaseUrl = data.settings.mlxBaseUrl;
+			aiTooling = data.settings.aiTooling;
 			initialized = true;
 		}
 	});
@@ -67,7 +69,7 @@
 			const res = await fetch('/api/settings', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ mlxBaseUrl })
+				body: JSON.stringify({ mlxBaseUrl, aiTooling })
 			});
 			const body = await res.json().catch(() => null);
 			if (!res.ok) {
@@ -75,6 +77,7 @@
 				return;
 			}
 			mlxBaseUrl = body.mlxBaseUrl;
+			aiTooling = body.aiTooling;
 			message = 'Saved LLM settings';
 		} catch {
 			formError = 'Network error while saving LLM settings';
@@ -106,6 +109,16 @@
 			<label>
 				<span>Base URL</span>
 				<input bind:value={mlxBaseUrl} placeholder="http://192.168.4.67:1234" />
+			</label>
+			<label>
+				<span>AI Tooling</span>
+				<select bind:value={aiTooling}>
+					<option value="generic">Generic / portable</option>
+					<option value="cursor">Cursor</option>
+					<option value="claude">Claude</option>
+					<option value="copilot">GitHub Copilot</option>
+					<option value="windsurf">Windsurf</option>
+				</select>
 			</label>
 			<button disabled={!mlxBaseUrl.trim() || saving === 'settings'} onclick={saveSettings}>
 				{saving === 'settings' ? 'Saving…' : 'Save'}

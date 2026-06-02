@@ -69,9 +69,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(400, 'Score this repo before generating an improvement plan');
 	}
 
-	const { mlxBaseUrl } = await readAppSettings();
+	const { mlxBaseUrl, aiTooling } = await readAppSettings();
 	try {
-		const plan = await generateImprovementPlan(name, path, rubric, score, { baseUrl: mlxBaseUrl }, PLANS_PATH);
+		const plan = await generateImprovementPlan(name, path, rubric, score, { baseUrl: mlxBaseUrl }, PLANS_PATH, aiTooling);
 		const exported = await exportImprovementPlanToRepo(path, plan);
 		return json({ ...(await markImprovementPlanExported(PLANS_PATH, name, exported)), exported });
 	} catch (e) {
