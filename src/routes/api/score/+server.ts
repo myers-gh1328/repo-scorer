@@ -2,7 +2,7 @@ import type { RequestHandler } from './$types';
 import { json, error } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { env } from '$env/dynamic/private';
+import { readAppSettings } from '$lib/server/appSettings';
 import { readRepoConfig } from '$lib/server/repoConfig';
 import { scoreRepo } from '$lib/scorer';
 import type { RepoConfig } from '$lib/types';
@@ -42,7 +42,7 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(500, 'rubric.md not found in project root');
   }
 
-  const mlxBaseUrl = env.MLX_BASE_URL ?? 'http://localhost:8080';
+  const { mlxBaseUrl } = await readAppSettings();
 
   try {
     const result = await scoreRepo(name, path, rubric, { baseUrl: mlxBaseUrl }, SCORES_PATH);
