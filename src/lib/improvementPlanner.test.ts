@@ -60,6 +60,43 @@ const plan = {
 	]
 };
 
+const validPlan = {
+	...plan,
+	summary: 'Add portable agent guidance, workflow instructions, and validation checks so coding agents can improve the repository safely.',
+	prioritizedTasks: [
+		{
+			title: 'Add scoped Cursor rules',
+			category: 'scoped_rules',
+			impact: 'high',
+			effort: 'medium',
+			targetFiles: ['.cursor/rules/backend.mdc'],
+			instructions: 'Create backend-specific agent rules for service code, including repo conventions, ownership boundaries, and exact checks agents should run before completion.',
+			acceptanceCriteria: ['Rules are path-scoped to backend code', 'Rules include validation commands'],
+			validationCommands: ['test -f .agent/rules/backend.md']
+		},
+		{
+			title: 'Add reusable improvement skill',
+			category: 'skills',
+			impact: 'high',
+			effort: 'medium',
+			targetFiles: ['.agent/skills/repo-improvement/SKILL.md'],
+			instructions: 'Create a reusable skill that explains how agents should apply repo maturity improvements in small batches with evidence and validation.',
+			acceptanceCriteria: ['Skill file exists', 'Skill includes step-by-step workflow instructions'],
+			validationCommands: ['test -f .agent/skills/repo-improvement/SKILL.md']
+		},
+		{
+			title: 'Document validation workflow',
+			category: 'validation_reproducibility',
+			impact: 'medium',
+			effort: 'low',
+			targetFiles: ['AGENTS.md'],
+			instructions: 'Update the repo guidance with the exact commands agents should run before reporting maturity-improvement changes as complete.',
+			acceptanceCriteria: ['AGENTS.md lists validation commands', 'Guidance explains when to run each command'],
+			validationCommands: ['test -f AGENTS.md']
+		}
+	]
+};
+
 describe('parseImprovementPlan', () => {
 	it('normalizes a raw JSON improvement plan', () => {
 		const result = parseImprovementPlan(JSON.stringify(plan), 'repo-scorer', score);
@@ -140,7 +177,7 @@ describe('generateImprovementPlan', () => {
 	it('rewrites vendor-specific recommendations to generic files by default', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
-		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(plan));
+		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(validPlan));
 
 		const result = await generateImprovementPlan(
 			'repo-scorer',
@@ -180,11 +217,11 @@ describe('generateImprovementPlan', () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		vi.mocked(callMLX).mockResolvedValue(JSON.stringify({
-			...plan,
+			...validPlan,
 			prioritizedTasks: [{
-				...plan.prioritizedTasks[0],
+				...validPlan.prioritizedTasks[0],
 				targetFiles: ['.agent/rules/backend.md']
-			}]
+			}, ...validPlan.prioritizedTasks.slice(1)]
 		}));
 
 		const result = await generateImprovementPlan(
@@ -198,5 +235,26 @@ describe('generateImprovementPlan', () => {
 		);
 
 		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.cursor/rules/backend.mdc');
+	});
+
+	it('repairs parsed plans that fail validation before falling back', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		vi.mocked(callMLX)
+			.mockResolvedValueOnce(JSON.stringify(plan))
+			.mockResolvedValueOnce(JSON.stringify(validPlan));
+
+		const result = await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('Validation errors to fix');
+		expect(result.prioritizedTasks).toHaveLength(3);
+		expect(result.summary).not.toContain('fallback improvement plan');
 	});
 });
