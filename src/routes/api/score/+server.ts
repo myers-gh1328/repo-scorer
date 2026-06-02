@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { readAppSettings } from '$lib/server/appSettings';
 import { readRepoConfig } from '$lib/server/repoConfig';
 import { scoreRepo } from '$lib/scorer';
+import { scoreResponseFormat } from '$lib/responseSchemas';
 import type { RepoConfig } from '$lib/types';
 
 const SCORES_PATH = 'scores.json';
@@ -42,10 +43,13 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(500, 'rubric.md not found in project root');
   }
 
-  const { mlxBaseUrl } = await readAppSettings();
+  const { mlxBaseUrl, useJsonSchema } = await readAppSettings();
 
   try {
-    const result = await scoreRepo(name, path, rubric, { baseUrl: mlxBaseUrl }, SCORES_PATH);
+    const result = await scoreRepo(name, path, rubric, {
+      baseUrl: mlxBaseUrl,
+      responseFormat: useJsonSchema ? scoreResponseFormat : undefined
+    }, SCORES_PATH);
     return json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

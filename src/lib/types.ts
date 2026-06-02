@@ -98,6 +98,15 @@ export interface ImprovementPlansStore {
 export interface MLXConfig {
   baseUrl: string;
   model?: string;
+  responseFormat?: MLXResponseFormat;
+}
+
+export interface MLXResponseFormat {
+  type: 'json_schema';
+  json_schema: {
+    name: string;
+    schema: Record<string, unknown>;
+  };
 }
 
 export function bandForScore(score: number): HealthBand {
