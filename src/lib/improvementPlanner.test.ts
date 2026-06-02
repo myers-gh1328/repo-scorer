@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseImprovementPlan } from './improvementPlanner';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { mkdtemp } from 'node:fs/promises';
+import { exportImprovementPlanToRepo, parseImprovementPlan } from './improvementPlanner';
 import type { ScoreResult } from './types';
 
 const score: ScoreResult = {
@@ -64,5 +68,33 @@ describe('parseImprovementPlan', () => {
 	it('rejects plans without valid tasks', () => {
 		expect(() => parseImprovementPlan(JSON.stringify({ summary: 'no tasks' }), 'repo-scorer', score))
 			.toThrow('task');
+	});
+});
+
+describe('exportImprovementPlanToRepo', () => {
+	it('writes the plan and an AGENTS.md pointer into the target repo', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-export-'));
+		const parsed = parseImprovementPlan(JSON.stringify(plan), 'repo-scorer', score);
+
+		const result = await exportImprovementPlanToRepo(repoDir, parsed);
+
+		expect(result.planPath).toBe('.agent/improvement-plan.md');
+		expect(await readFile(join(repoDir, '.agent', 'improvement-plan.md'), 'utf-8'))
+			.toContain('You are an AI coding agent working in this repository');
+		expect(await readFile(join(repoDir, 'AGENTS.md'), 'utf-8'))
+			.toContain('.agent/improvement-plan.md');
+	});
+
+	it('does not duplicate the AGENTS.md pointer', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-export-'));
+		await mkdir(join(repoDir, '.git'));
+		await writeFile(join(repoDir, 'AGENTS.md'), '# Agent Guide\n');
+		const parsed = parseImprovementPlan(JSON.stringify(plan), 'repo-scorer', score);
+
+		await exportImprovementPlanToRepo(repoDir, parsed);
+		await exportImprovementPlanToRepo(repoDir, parsed);
+
+		const content = await readFile(join(repoDir, 'AGENTS.md'), 'utf-8');
+		expect(content.match(/\.agent\/improvement-plan\.md/g)?.length).toBe(1);
 	});
 });

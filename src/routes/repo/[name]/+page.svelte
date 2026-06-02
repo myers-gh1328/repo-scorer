@@ -7,7 +7,9 @@
   let rescoring = $state(false);
   let rescoreError = $state('');
   let planning = $state(false);
+  let exporting = $state(false);
   let planError = $state('');
+  let exportMessage = $state('');
   let copied = $state(false);
 
   async function rescore() {
@@ -37,6 +39,7 @@
   async function generatePlan() {
     planning = true;
     planError = '';
+    exportMessage = '';
     copied = false;
     try {
       const res = await fetch('/api/improvement-plan', {
@@ -64,6 +67,29 @@
     copied = true;
   }
 
+  async function exportPlan() {
+    exporting = true;
+    planError = '';
+    exportMessage = '';
+    try {
+      const res = await fetch('/api/improvement-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'export', name: data.name, path: data.repoPath })
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        planError = body?.message ?? 'Export failed';
+        return;
+      }
+      exportMessage = `Exported to ${body.planPath} and updated ${body.agentsPath}`;
+    } catch {
+      planError = 'Network error — could not reach server';
+    } finally {
+      exporting = false;
+    }
+  }
+
   const categoryEntries = Object.keys(CATEGORY_MAX) as (keyof typeof CATEGORY_MAX)[];
 </script>
 
@@ -87,6 +113,9 @@
   {/if}
   {#if planError}
     <div class="row-error" style="margin-bottom:1rem">{planError}</div>
+  {/if}
+  {#if exportMessage}
+    <div class="notice">{exportMessage}</div>
   {/if}
 
   {#if !data.result}
@@ -158,9 +187,14 @@
       <div class="section">
         <div class="section-header">
           <h2>Improvement Plan</h2>
-          <button onclick={() => copyPlan(plan.markdown)}>
-            {copied ? 'Copied' : 'Copy Markdown'}
-          </button>
+          <div class="button-row">
+            <button onclick={exportPlan} disabled={exporting}>
+              {exporting ? 'Exporting…' : 'Export to Repo'}
+            </button>
+            <button onclick={() => copyPlan(plan.markdown)}>
+              {copied ? 'Copied' : 'Copy Markdown'}
+            </button>
+          </div>
         </div>
         <p class="muted">
           Generated {new Date(plan.generatedAt).toLocaleString()}
