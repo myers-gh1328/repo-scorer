@@ -63,7 +63,7 @@ async function collectDir(
         await collectDir(full, repoRoot, files, depth + 1);
       } else if (s.isFile() && isRelevantFile(entry)) {
         const content = await readFile(full, 'utf-8');
-        files.push({ relativePath: relative(repoRoot, full), content: content.slice(0, MAX_FILE_CHARS) });
+        files.push({ relativePath: relative(repoRoot, full).replace(/\\/g, '/'), content: content.slice(0, MAX_FILE_CHARS) });
       }
     } catch {
       // skip unreadable entries
