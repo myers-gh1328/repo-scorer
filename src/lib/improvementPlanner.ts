@@ -17,14 +17,6 @@ import type {
 const CATEGORY_KEYS = Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[];
 const IMPACT_VALUES = ['high', 'medium', 'low'] as const;
 const EXPORTED_PLAN_PATH = '.agent/improvement-plan.md';
-const VENDOR_SPECIFIC_PATHS = [
-	'.cursor/',
-	'.claude/',
-	'.github/copilot-instructions.md',
-	'.github/instructions/',
-	'.github/prompts/',
-	'.windsurf/'
-];
 const AGENTS_POINTER = `## Agent Improvement Plan
 
 This repository has a generated agent-facing improvement plan at \`${EXPORTED_PLAN_PATH}\`. Review it before making repo maturity improvements.
@@ -41,17 +33,20 @@ export async function generateImprovementPlan(
 ): Promise<ImprovementPlan> {
 	const scan = await scanRepo(repoPath);
 	const raw = await callPlanModel(mlxConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, aiTooling));
-	let plan = tryParseImprovementPlan(raw, repoName, score);
-	if (!plan) {
-		const repaired = await callPlanModel(mlxConfig, buildRepairPrompt(raw, repoName, score));
-		plan = tryParseImprovementPlan(repaired, repoName, score);
-		if (!plan) {
-			plan = fallbackImprovementPlan(repoName, score);
-		}
+	let plan = prepareGeneratedPlan(tryParseImprovementPlan(raw, repoName, score), aiTooling);
+	let validationErrors = plan ? validateImprovementPlan(plan, aiTooling) : ['Response was not valid JSON matching the required plan schema.'];
+
+	if (!plan || validationErrors.length > 0) {
+		const repaired = await callPlanModel(mlxConfig, buildRepairPrompt(raw, repoName, score, validationErrors, aiTooling));
+		plan = prepareGeneratedPlan(tryParseImprovementPlan(repaired, repoName, score), aiTooling);
+		validationErrors = plan ? validateImprovementPlan(plan, aiTooling) : ['Repaired response was not valid JSON matching the required plan schema.'];
+	}
+
+	if (!plan || validationErrors.length > 0) {
+		plan = fallbackImprovementPlan(repoName, score);
 	}
 
 	plan.generatedAt = new Date().toISOString();
-	plan.prioritizedTasks = plan.prioritizedTasks.map(task => rewriteTaskForTooling(task, aiTooling));
 	plan.markdown = renderImprovementMarkdown(plan);
 
 	let plans: ImprovementPlansStore = {};
@@ -62,6 +57,13 @@ export async function generateImprovementPlan(
 	}
 	plans[repoName] = plan;
 	await writeFile(plansPath, JSON.stringify(plans, null, 2));
+	return plan;
+}
+
+function prepareGeneratedPlan(plan: ImprovementPlan | null, aiTooling: AiTooling): ImprovementPlan | null {
+	if (!plan) return null;
+	plan.prioritizedTasks = plan.prioritizedTasks.map(task => rewriteTaskForTooling(task, aiTooling));
+	plan.markdown = renderImprovementMarkdown(plan);
 	return plan;
 }
 
@@ -226,6 +228,56 @@ function fallbackTargetFiles(category: keyof CategoryScores): string[] {
 		default:
 			return ['.agent/improvement-plan.md'];
 	}
+}
+
+function validateImprovementPlan(plan: ImprovementPlan, aiTooling: AiTooling): string[] {
+	const errors: string[] = [];
+	if (plan.prioritizedTasks.length < 3 || plan.prioritizedTasks.length > 5) {
+		errors.push('prioritizedTasks must contain 3 to 5 tasks.');
+	}
+	if (!plan.summary || plan.summary.length < 40) {
+		errors.push('summary must be a concrete 1-2 sentence repo-specific summary.');
+	}
+
+	plan.prioritizedTasks.forEach((task, index) => {
+		const label = `Task ${index + 1}`;
+		if (task.title.length < 8 || task.title.length > 90) {
+			errors.push(`${label} title must be specific and between 8 and 90 characters.`);
+		}
+		if (task.instructions.length < 80) {
+			errors.push(`${label} instructions must be specific enough for a coding agent to execute, at least 80 characters.`);
+		}
+		if (task.targetFiles.length === 0 || task.targetFiles.some(file => !isConcreteTargetFile(file))) {
+			errors.push(`${label} targetFiles must contain concrete repo-relative file paths, not placeholders or vague directories.`);
+		}
+		if (task.acceptanceCriteria.length < 2) {
+			errors.push(`${label} must include at least two acceptance criteria.`);
+		}
+		if (task.validationCommands.length === 0) {
+			errors.push(`${label} should include at least one validation command or manual verification command.`);
+		}
+		if (aiTooling === 'generic' && task.targetFiles.some(isVendorSpecificPath)) {
+			errors.push(`${label} uses vendor-specific target files while AI tooling is generic.`);
+		}
+	});
+
+	return errors;
+}
+
+function isConcreteTargetFile(file: string): boolean {
+	if (!file || file.includes('<') || file.includes('>')) return false;
+	if (file === 'To be determined') return false;
+	if (file.endsWith('/')) return false;
+	return file.includes('.') || file.includes('/');
+}
+
+function isVendorSpecificPath(file: string): boolean {
+	return file.startsWith('.cursor/')
+		|| file.startsWith('.claude/')
+		|| file.startsWith('.windsurf/')
+		|| file === '.github/copilot-instructions.md'
+		|| file.startsWith('.github/instructions/')
+		|| file.startsWith('.github/prompts/');
 }
 
 function normalizeTasks(value: unknown): ImprovementTask[] {
@@ -415,13 +467,37 @@ Required schema:
 }
 
 Rules:
-- Include 3 to 6 prioritized tasks.
+- Include exactly 3 to 5 prioritized tasks. This is a next-action batch, not a full roadmap.
+- Optimize for the highest score impact first.
+- Each task must be independently actionable in one coding-agent session.
 - Prefer portable, agent-agnostic files such as AGENTS.md, .agent/improvement-plan.md, .agent/rules/*.md, .agent/skills/*/SKILL.md, .agent/agents/*.md, docs/adr/*.md, Makefile, package scripts, and CI workflow files when CI already exists.
 - If AI TOOLING TARGET is generic, do not recommend tool/vendor-specific files such as .cursor/**, .claude/**, .windsurf/**, or .github/copilot-instructions.md.
 - If AI TOOLING TARGET names a specific tool, recommend that tool's conventional files where appropriate.
+- Every task must have concrete repo-relative targetFiles.
+- Every task must have at least two acceptanceCriteria.
+- Every task must have at least one validationCommands entry, even if it is a manual verification command such as "test -f AGENTS.md".
 - Tie each task to one weak or improvable category.
 - Do not invent product facts not supported by the evidence.
-- Return raw JSON only.`;
+- Return exactly one raw JSON object. Do not return markdown, commentary, code fences, or explanations.
+
+Example shape:
+{
+  "summary": "This repo has useful baseline guidance but needs portable scoped rules, reusable workflow instructions, and validation hooks so agents can make repeatable changes safely.",
+  "strongestCategories": ["persistent_guidance"],
+  "weakestCategories": ["scoped_rules", "skills", "validation_reproducibility"],
+  "prioritizedTasks": [
+    {
+      "title": "Add portable scoped repo rules",
+      "category": "scoped_rules",
+      "impact": "high",
+      "effort": "medium",
+      "targetFiles": [".agent/rules/repo-guidance.md"],
+      "instructions": "Create repo-specific scoped guidance for the highest-risk code areas. Include conventions, ownership boundaries, and the exact validation commands agents should run before reporting completion.",
+      "acceptanceCriteria": ["The file contains repo-specific path or module guidance", "The file includes concrete validation commands"],
+      "validationCommands": ["test -f .agent/rules/repo-guidance.md"]
+    }
+  ]
+}`;
 }
 
 function toolingInstruction(aiTooling: AiTooling): string {
@@ -439,17 +515,29 @@ function toolingInstruction(aiTooling: AiTooling): string {
 	}
 }
 
-function buildRepairPrompt(raw: string, repoName: string, score: ScoreResult): string {
+function buildRepairPrompt(raw: string, repoName: string, score: ScoreResult, validationErrors: string[], aiTooling: AiTooling): string {
 	return `Convert the text below into one valid JSON object for an improvement plan for ${repoName}. Return raw JSON only.
 
 Current score:
 ${JSON.stringify(score, null, 2)}
+
+AI tooling target:
+${toolingInstruction(aiTooling)}
+
+Validation errors to fix:
+${validationErrors.map(error => `- ${error}`).join('\n')}
 
 Required keys:
 - summary
 - strongestCategories
 - weakestCategories
 - prioritizedTasks with title, category, impact, effort, targetFiles, instructions, acceptanceCriteria, validationCommands
+
+Rules:
+- Return exactly one raw JSON object.
+- Include exactly 3 to 5 prioritizedTasks.
+- Every task needs concrete targetFiles, specific instructions, at least two acceptanceCriteria, and at least one validationCommands entry.
+- Generic tooling must use AGENTS.md and .agent/**, not vendor-specific files.
 
 Text to convert:
 ${raw}`;
