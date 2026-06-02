@@ -78,6 +78,9 @@ export interface ImprovementTask {
 
 export interface ImprovementPlan {
   generatedAt: string;
+  exportedAt?: string;
+  exportedPlanPath?: string;
+  exportedAgentsPath?: string;
   repoName: string;
   summary: string;
   currentScore: number;

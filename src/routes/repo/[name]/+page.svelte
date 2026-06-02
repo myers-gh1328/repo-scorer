@@ -10,7 +10,16 @@
   let exporting = $state(false);
   let planError = $state('');
   let exportMessage = $state('');
+  let exportedAt = $state('');
+  let initializedExportState = $state(false);
   let copied = $state(false);
+
+  $effect(() => {
+    if (!initializedExportState) {
+      exportedAt = data.improvementPlan?.exportedAt ?? '';
+      initializedExportState = true;
+    }
+  });
 
   async function rescore() {
     rescoring = true;
@@ -82,6 +91,7 @@
         planError = body?.message ?? 'Export failed';
         return;
       }
+      exportedAt = body.exportedAt ?? new Date().toISOString();
       exportMessage = `Exported to ${body.planPath} and updated ${body.agentsPath}`;
     } catch {
       planError = 'Network error — could not reach server';
@@ -189,7 +199,7 @@
           <h2>Improvement Plan</h2>
           <div class="button-row">
             <button onclick={exportPlan} disabled={exporting}>
-              {exporting ? 'Exporting…' : 'Export to Repo'}
+              {exporting ? 'Exporting…' : exportedAt ? 'Re-export to Repo' : 'Export to Repo'}
             </button>
             <button onclick={() => copyPlan(plan.markdown)}>
               {copied ? 'Copied' : 'Copy Markdown'}
@@ -198,6 +208,9 @@
         </div>
         <p class="muted">
           Generated {new Date(plan.generatedAt).toLocaleString()}
+          {#if exportedAt}
+            · exported {new Date(exportedAt).toLocaleString()}
+          {/if}
         </p>
         <p>{plan.summary}</p>
 
