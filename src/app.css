@@ -82,6 +82,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   color: #ff9c9c;
 }
 .danger:hover:not(:disabled) { background: #5a2929; }
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 
 .bar-track {
   background: #1e1e1e;
@@ -125,6 +131,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .section { margin-bottom: 2rem; }
 .section h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 0.5rem; }
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.section-header h2 { margin: 0; }
 .muted { color: #777; }
 .notice {
   color: #2ecc71;
@@ -171,6 +185,72 @@ input:focus {
   outline: none;
   border-color: #2a5298;
 }
+.plan-tasks {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.plan-task {
+  border: 1px solid #252525;
+  border-radius: 6px;
+  padding: 1rem;
+  background: #131313;
+}
+.task-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: baseline;
+}
+.task-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.task-heading span,
+.task-meta {
+  color: #888;
+  font-size: 0.8rem;
+}
+.task-meta {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.35rem;
+  text-transform: capitalize;
+}
+.task-list {
+  margin-top: 0.75rem;
+}
+.task-list strong {
+  color: #aaa;
+  font-size: 0.85rem;
+}
+.task-list ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.25rem;
+}
+.task-list li {
+  margin: 0.25rem 0;
+}
+code {
+  color: #d8d8d8;
+  background: #1d1d1d;
+  border: 1px solid #2b2b2b;
+  border-radius: 3px;
+  padding: 0.1rem 0.25rem;
+}
+.markdown-output {
+  width: 100%;
+  min-height: 16rem;
+  margin-top: 1rem;
+  background: #101010;
+  color: #d8d8d8;
+  border: 1px solid #2b2b2b;
+  border-radius: 4px;
+  padding: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  resize: vertical;
+}
 
 @media (max-width: 720px) {
   .page-header,
@@ -186,5 +266,9 @@ input:focus {
   label {
     display: block;
     margin-bottom: 0.75rem;
+  }
+  .task-heading,
+  .section-header {
+    display: block;
   }
 }

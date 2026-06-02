@@ -22,4 +22,5 @@ vite.config.ts.timestamp-*
 
 # App-specific
 repos.config.json
+improvement-plans.json
 scores.json

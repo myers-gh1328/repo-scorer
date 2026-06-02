@@ -65,6 +65,33 @@ export interface ScoresStore {
   [repoName: string]: ScoreResult;
 }
 
+export interface ImprovementTask {
+  title: string;
+  category: keyof CategoryScores;
+  impact: 'high' | 'medium' | 'low';
+  effort: 'high' | 'medium' | 'low';
+  targetFiles: string[];
+  instructions: string;
+  acceptanceCriteria: string[];
+  validationCommands: string[];
+}
+
+export interface ImprovementPlan {
+  generatedAt: string;
+  repoName: string;
+  summary: string;
+  currentScore: number;
+  currentBand: HealthBand;
+  strongestCategories: (keyof CategoryScores)[];
+  weakestCategories: (keyof CategoryScores)[];
+  prioritizedTasks: ImprovementTask[];
+  markdown: string;
+}
+
+export interface ImprovementPlansStore {
+  [repoName: string]: ImprovementPlan;
+}
+
 export interface MLXConfig {
   baseUrl: string;
   model?: string;
