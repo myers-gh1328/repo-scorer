@@ -21,4 +21,5 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 # App-specific
+repos.config.json
 scores.json
