@@ -160,7 +160,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .settings-row {
   display: grid;
-  grid-template-columns: minmax(16rem, 1fr) auto;
+  grid-template-columns: minmax(16rem, 1fr) minmax(10rem, 0.45fr) auto;
   gap: 0.75rem;
   align-items: end;
 }
@@ -172,7 +172,8 @@ label span {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-input {
+input,
+select {
   width: 100%;
   background: #151515;
   color: #e0e0e0;
@@ -181,7 +182,8 @@ input {
   padding: 0.45rem 0.6rem;
   font: inherit;
 }
-input:focus {
+input:focus,
+select:focus {
   outline: none;
   border-color: #2a5298;
 }

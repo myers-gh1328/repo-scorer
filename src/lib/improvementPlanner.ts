@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { scanRepo } from './scanner';
 import { callMLX } from './mlxClient';
 import { CATEGORY_LABELS, CATEGORY_MAX } from './types';
+import type { AiTooling } from './server/appSettings';
 import type {
 	CategoryScores,
 	ImprovementPlan,
@@ -16,6 +17,14 @@ import type {
 const CATEGORY_KEYS = Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[];
 const IMPACT_VALUES = ['high', 'medium', 'low'] as const;
 const EXPORTED_PLAN_PATH = '.agent/improvement-plan.md';
+const VENDOR_SPECIFIC_PATHS = [
+	'.cursor/',
+	'.claude/',
+	'.github/copilot-instructions.md',
+	'.github/instructions/',
+	'.github/prompts/',
+	'.windsurf/'
+];
 const AGENTS_POINTER = `## Agent Improvement Plan
 
 This repository has a generated agent-facing improvement plan at \`${EXPORTED_PLAN_PATH}\`. Review it before making repo maturity improvements.
@@ -27,10 +36,11 @@ export async function generateImprovementPlan(
 	rubric: string,
 	score: ScoreResult,
 	mlxConfig: MLXConfig,
-	plansPath: string
+	plansPath: string,
+	aiTooling: AiTooling = 'generic'
 ): Promise<ImprovementPlan> {
 	const scan = await scanRepo(repoPath);
-	const raw = await callPlanModel(mlxConfig, buildImprovementPrompt(repoName, rubric, score, scan.files));
+	const raw = await callPlanModel(mlxConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, aiTooling));
 	let plan = tryParseImprovementPlan(raw, repoName, score);
 	if (!plan) {
 		const repaired = await callPlanModel(mlxConfig, buildRepairPrompt(raw, repoName, score));
@@ -41,6 +51,7 @@ export async function generateImprovementPlan(
 	}
 
 	plan.generatedAt = new Date().toISOString();
+	plan.prioritizedTasks = plan.prioritizedTasks.map(task => rewriteTaskForTooling(task, aiTooling));
 	plan.markdown = renderImprovementMarkdown(plan);
 
 	let plans: ImprovementPlansStore = {};
@@ -178,6 +189,63 @@ function normalizeTasks(value: unknown): ImprovementTask[] {
 		.slice(0, 8);
 }
 
+function rewriteTaskForTooling(task: ImprovementTask, aiTooling: AiTooling): ImprovementTask {
+	const targetFiles = task.targetFiles.map(path => rewriteVendorSpecificPath(path, aiTooling));
+	return {
+		...task,
+		title: replaceVendorText(task.title, aiTooling),
+		targetFiles,
+		instructions: replaceVendorText(task.instructions, aiTooling),
+		acceptanceCriteria: task.acceptanceCriteria.map(item => replaceVendorText(item, aiTooling))
+	};
+}
+
+function rewriteVendorSpecificPath(path: string, aiTooling: AiTooling): string {
+	if (aiTooling === 'cursor') {
+		if (path.startsWith('.agent/rules/')) return path.replace('.agent/rules/', '.cursor/rules/').replace(/\.md$/, '.mdc');
+		if (path.startsWith('.agent/')) return path.replace('.agent/', '.cursor/');
+		return path;
+	}
+	if (aiTooling === 'claude') {
+		if (path.startsWith('.agent/rules/')) return path.replace('.agent/rules/', '.claude/rules/');
+		if (path.startsWith('.agent/skills/')) return path.replace('.agent/skills/', '.claude/skills/');
+		if (path.startsWith('.agent/agents/')) return path.replace('.agent/agents/', '.claude/agents/');
+		return path;
+	}
+	if (aiTooling === 'copilot') {
+		if (path === '.agent/instructions.md') return '.github/copilot-instructions.md';
+		if (path.startsWith('.agent/instructions/')) return path.replace('.agent/instructions/', '.github/instructions/');
+		if (path.startsWith('.agent/prompts/')) return path.replace('.agent/prompts/', '.github/prompts/');
+		return path;
+	}
+	if (aiTooling === 'windsurf') {
+		if (path.startsWith('.agent/')) return path.replace('.agent/', '.windsurf/');
+		return path;
+	}
+	if (path.startsWith('.cursor/rules/')) return path.replace('.cursor/rules/', '.agent/rules/').replace(/\.mdc$/, '.md');
+	if (path.startsWith('.cursor/')) return path.replace('.cursor/', '.agent/');
+	if (path.startsWith('.claude/')) return path.replace('.claude/', '.agent/');
+	if (path.startsWith('.windsurf/')) return path.replace('.windsurf/', '.agent/');
+	if (path === '.github/copilot-instructions.md') return '.agent/instructions.md';
+	if (path.startsWith('.github/instructions/')) return path.replace('.github/instructions/', '.agent/instructions/');
+	if (path.startsWith('.github/prompts/')) return path.replace('.github/prompts/', '.agent/prompts/');
+	return path;
+}
+
+function replaceVendorText(value: string, aiTooling: AiTooling): string {
+	if (aiTooling !== 'generic') return value;
+	return value
+		.replace(/\bCursor\b/g, 'agent')
+		.replace(/\.cursor\/rules\//g, '.agent/rules/')
+		.replace(/\.cursor\//g, '.agent/')
+		.replace(/\.claude\//g, '.agent/')
+		.replace(/\.windsurf\//g, '.agent/')
+		.replace(/\.github\/copilot-instructions\.md/g, '.agent/instructions.md')
+		.replace(/\.github\/instructions\//g, '.agent/instructions/')
+		.replace(/\.github\/prompts\//g, '.agent/prompts/')
+		.replace(/\.mdc\b/g, '.md');
+}
+
 function renderImprovementMarkdown(plan: ImprovementPlan): string {
 	const lines = [
 		`# Repo Improvement Plan: ${plan.repoName}`,
@@ -237,7 +305,8 @@ function buildImprovementPrompt(
 	repoName: string,
 	rubric: string,
 	score: ScoreResult,
-	files: { relativePath: string; content: string }[]
+	files: { relativePath: string; content: string }[],
+	aiTooling: AiTooling
 ): string {
 	const evidence = files.length === 0
 		? 'No agent-related files found in this repository.'
@@ -260,6 +329,9 @@ ${evidence}
 ## TASK
 Return ONLY a JSON object that a human or coding LLM can use to improve the repository.
 
+## AI TOOLING TARGET
+${toolingInstruction(aiTooling)}
+
 Required schema:
 {
   "summary": <short summary string>,
@@ -281,10 +353,27 @@ Required schema:
 
 Rules:
 - Include 3 to 6 prioritized tasks.
-- Prefer concrete files such as AGENTS.md, .cursor/rules/*.mdc, .agents/skills/*/SKILL.md, .github/workflows/*.yml, docs/adr/*.md.
+- Prefer portable, agent-agnostic files such as AGENTS.md, .agent/improvement-plan.md, .agent/rules/*.md, .agent/skills/*/SKILL.md, .agent/agents/*.md, docs/adr/*.md, Makefile, package scripts, and CI workflow files when CI already exists.
+- If AI TOOLING TARGET is generic, do not recommend tool/vendor-specific files such as .cursor/**, .claude/**, .windsurf/**, or .github/copilot-instructions.md.
+- If AI TOOLING TARGET names a specific tool, recommend that tool's conventional files where appropriate.
 - Tie each task to one weak or improvable category.
 - Do not invent product facts not supported by the evidence.
 - Return raw JSON only.`;
+}
+
+function toolingInstruction(aiTooling: AiTooling): string {
+	switch (aiTooling) {
+		case 'cursor':
+			return 'Cursor. Use Cursor-specific files such as .cursor/rules/*.mdc only where they are the right target.';
+		case 'claude':
+			return 'Claude. Use Claude-specific files such as .claude/rules/*.md, .claude/skills/*/SKILL.md, and .claude/agents/*.md only where they are the right target.';
+		case 'copilot':
+			return 'GitHub Copilot. Use files such as .github/copilot-instructions.md, .github/instructions/*.instructions.md, and .github/prompts/*.prompt.md only where they are the right target.';
+		case 'windsurf':
+			return 'Windsurf. Use Windsurf-specific files only where they are the right target.';
+		default:
+			return 'Generic / portable. Use agent-agnostic files such as AGENTS.md and .agent/**. Do not create vendor-specific AI tool files.';
+	}
 }
 
 function buildRepairPrompt(raw: string, repoName: string, score: ScoreResult): string {

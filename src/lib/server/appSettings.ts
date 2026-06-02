@@ -2,20 +2,29 @@ import { readFile, writeFile } from 'node:fs/promises';
 
 const ENV_PATH = '.env';
 const DEFAULT_MLX_BASE_URL = 'http://localhost:8080';
+export const AI_TOOLING_VALUES = ['generic', 'cursor', 'claude', 'copilot', 'windsurf'] as const;
+export type AiTooling = typeof AI_TOOLING_VALUES[number];
 
 export interface AppSettings {
 	mlxBaseUrl: string;
+	aiTooling: AiTooling;
 }
 
 export async function readAppSettings(): Promise<AppSettings> {
-	return { mlxBaseUrl: await readEnvValue('MLX_BASE_URL') ?? DEFAULT_MLX_BASE_URL };
+	return {
+		mlxBaseUrl: await readEnvValue('MLX_BASE_URL') ?? DEFAULT_MLX_BASE_URL,
+		aiTooling: normalizeAiTooling(await readEnvValue('AI_TOOLING') ?? 'generic')
+	};
 }
 
 export async function writeAppSettings(settings: AppSettings): Promise<AppSettings> {
 	const mlxBaseUrl = normalizeBaseUrl(settings.mlxBaseUrl);
+	const aiTooling = normalizeAiTooling(settings.aiTooling);
 	await writeEnvValue('MLX_BASE_URL', mlxBaseUrl);
+	await writeEnvValue('AI_TOOLING', aiTooling);
 	process.env.MLX_BASE_URL = mlxBaseUrl;
-	return { mlxBaseUrl };
+	process.env.AI_TOOLING = aiTooling;
+	return { mlxBaseUrl, aiTooling };
 }
 
 export function normalizeBaseUrl(value: string): string {
@@ -33,6 +42,10 @@ export function normalizeBaseUrl(value: string): string {
 	parsed.search = '';
 	parsed.hash = '';
 	return parsed.toString().replace(/\/$/, '');
+}
+
+export function normalizeAiTooling(value: string): AiTooling {
+	return AI_TOOLING_VALUES.includes(value as AiTooling) ? value as AiTooling : 'generic';
 }
 
 async function readEnvValue(key: string): Promise<string | null> {
@@ -64,4 +77,3 @@ async function readEnvLines(): Promise<string[]> {
 		return [];
 	}
 }
-

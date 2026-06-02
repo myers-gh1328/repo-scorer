@@ -1,14 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtemp } from 'node:fs/promises';
 import {
 	exportImprovementPlanToRepo,
+	generateImprovementPlan,
 	markImprovementPlanExported,
 	parseImprovementPlan
 } from './improvementPlanner';
+import { callMLX } from './mlxClient';
 import type { ScoreResult } from './types';
+
+vi.mock('./mlxClient', () => ({ callMLX: vi.fn() }));
+
+beforeEach(() => {
+	vi.clearAllMocks();
+});
 
 const score: ScoreResult = {
 	scoredAt: '2026-06-02T00:00:00.000Z',
@@ -116,5 +124,49 @@ describe('exportImprovementPlanToRepo', () => {
 
 		const content = await readFile(join(repoDir, 'AGENTS.md'), 'utf-8');
 		expect(content.match(/\.agent\/improvement-plan\.md/g)?.length).toBe(1);
+	});
+});
+
+describe('generateImprovementPlan', () => {
+	it('rewrites vendor-specific recommendations to generic files by default', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(plan));
+
+		const result = await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(result.prioritizedTasks[0].title).not.toContain('Cursor');
+		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.agent/rules/backend.md');
+	});
+
+	it('keeps Cursor recommendations when Cursor is selected', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		vi.mocked(callMLX).mockResolvedValue(JSON.stringify({
+			...plan,
+			prioritizedTasks: [{
+				...plan.prioritizedTasks[0],
+				targetFiles: ['.agent/rules/backend.md']
+			}]
+		}));
+
+		const result = await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json'),
+			'cursor'
+		);
+
+		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.cursor/rules/backend.mdc');
 	});
 });
