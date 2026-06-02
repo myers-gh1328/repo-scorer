@@ -282,4 +282,69 @@ describe('generateImprovementPlan', () => {
 
 		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('src/DefinitelyMissing.cs');
 	});
+
+	it('allows planned parent directories and generic SKILL.md wording', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		await mkdir(join(repoDir, 'src', 'lib'), { recursive: true });
+		await writeFile(join(repoDir, 'AGENTS.md'), '# Agent Guidance');
+		const directoryReferencePlan = {
+			...validPlan,
+			prioritizedTasks: [
+				{
+					...validPlan.prioritizedTasks[0],
+					targetFiles: ['.agent/rules/repo-guidance.md'],
+					instructions: 'Create .agent/rules repo guidance for this SvelteKit app, covering src/lib scoring modules and validation commands agents should run before completion.',
+					validationCommands: ['test -f .agent/rules/repo-guidance.md']
+				},
+				{
+					...validPlan.prioritizedTasks[1],
+					instructions: 'Create a reusable repo-improvement skill package. The SKILL.md should explain how to inspect scores, update docs, and validate changes for this repository.'
+				},
+				validPlan.prioritizedTasks[2]
+			]
+		};
+		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(directoryReferencePlan));
+
+		const result = await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.agent/rules/repo-guidance.md');
+		expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(1);
+	});
+
+	it('includes repository inventory in repair prompts', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		await mkdir(join(repoDir, 'src', 'lib'), { recursive: true });
+		await writeFile(join(repoDir, 'src', 'lib', 'scorer.ts'), 'export const score = 1;');
+		const invalidReferencePlan = {
+			...validPlan,
+			prioritizedTasks: [{
+				...validPlan.prioritizedTasks[0],
+				instructions: 'Update src/MissingThing.ts with repo-specific guidance, then compare it with src/lib/scorer.ts to keep the implementation consistent.'
+			}, ...validPlan.prioritizedTasks.slice(1)]
+		};
+		vi.mocked(callMLX)
+			.mockResolvedValueOnce(JSON.stringify(invalidReferencePlan))
+			.mockResolvedValueOnce(JSON.stringify(validPlan));
+
+		await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('Repository path inventory');
+		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('src/lib/scorer.ts');
+	});
 });

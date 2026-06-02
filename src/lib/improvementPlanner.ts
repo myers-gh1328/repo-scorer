@@ -38,7 +38,7 @@ export async function generateImprovementPlan(
 	let validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Response was not valid JSON matching the required plan schema.'];
 
 	if (!plan || validationErrors.length > 0) {
-		const repaired = await callPlanModel(mlxConfig, buildRepairPrompt(raw, repoName, score, validationErrors, aiTooling));
+		const repaired = await callPlanModel(mlxConfig, buildRepairPrompt(raw, repoName, score, validationErrors, inventory, aiTooling));
 		plan = prepareGeneratedPlan(tryParseImprovementPlan(repaired, repoName, score), aiTooling);
 		validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Repaired response was not valid JSON matching the required plan schema.'];
 	}
@@ -237,7 +237,7 @@ async function collectInventoryDir(root: string, current: string, files: Set<str
 		const full = join(current, entry);
 		try {
 			const s = await stat(full);
-			const relative = full.slice(root.length + 1);
+			const relative = full.slice(root.length + 1).replace(/\\/g, '/');
 			if (s.isDirectory()) {
 				dirs.add(relative);
 				await collectInventoryDir(root, full, files, dirs, depth + 1);
@@ -259,14 +259,28 @@ function referencedRepoPaths(task: ImprovementTask): string[] {
 	const matches = text.match(/(?:`([^`]+)`|((?:\.?[A-Za-z0-9_-]+\/)[A-Za-z0-9_./*{}-]+)|([A-Za-z0-9_.-]+\.(?:md|json|yml|yaml|cs|csproj|slnx|tf|sh)))/g) ?? [];
 	return [...new Set(matches
 		.map(match => match.replace(/^`|`$/g, '').trim())
-		.map(path => path.replace(/^\.\//, '').replace(/\*\*?\/?$/g, '').replace(/\/$/, ''))
+		.map(normalizeReferencedPath)
 		.filter(path => path.length > 0)
 		.filter(path => !path.includes(' '))
+		.filter(path => path.includes('/') || path !== 'SKILL.md')
 		.filter(path => !path.startsWith('http')))];
 }
 
 function isPlannedTarget(path: string, targetFiles: string[]): boolean {
-	return targetFiles.some(target => path === target || path.startsWith(`${target.replace(/\/$/, '')}/`));
+	return targetFiles.some(target => {
+		const normalizedTarget = normalizeReferencedPath(target);
+		return path === normalizedTarget
+			|| path.startsWith(`${normalizedTarget}/`)
+			|| normalizedTarget.startsWith(`${path}/`);
+	});
+}
+
+function normalizeReferencedPath(path: string): string {
+	return path
+		.replace(/^\.\//, '')
+		.replace(/\*\*?\/?$/g, '')
+		.replace(/\/\.$/, '')
+		.replace(/\/$/, '');
 }
 
 function inventoryHasPath(inventory: RepoInventory, path: string): boolean {
@@ -542,7 +556,14 @@ function toolingInstruction(aiTooling: AiTooling): string {
 	}
 }
 
-function buildRepairPrompt(raw: string, repoName: string, score: ScoreResult, validationErrors: string[], aiTooling: AiTooling): string {
+function buildRepairPrompt(
+	raw: string,
+	repoName: string,
+	score: ScoreResult,
+	validationErrors: string[],
+	inventory: RepoInventory,
+	aiTooling: AiTooling
+): string {
 	return `Convert the text below into one valid JSON object for an improvement plan for ${repoName}. Return raw JSON only.
 
 Current score:
@@ -553,6 +574,10 @@ ${toolingInstruction(aiTooling)}
 
 Validation errors to fix:
 ${validationErrors.map(error => `- ${error}`).join('\n')}
+
+Repository path inventory:
+Use these paths when referencing existing files or directories. Do not cite existing repo paths that are absent from this inventory unless they are new files listed in targetFiles.
+${inventory.list.map(path => `- ${path}`).join('\n')}
 
 Required keys:
 - summary
