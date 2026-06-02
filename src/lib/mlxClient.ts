@@ -17,7 +17,8 @@ export async function callMLX(config: MLXConfig, prompt: string): Promise<string
   }
 
   const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
+  const message = data?.choices?.[0]?.message;
+  const content = message?.content || message?.reasoning_content;
   if (typeof content !== 'string') {
     throw new Error(`MLX response missing content: ${JSON.stringify(data)}`);
   }

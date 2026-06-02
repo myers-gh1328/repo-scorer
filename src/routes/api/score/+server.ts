@@ -3,6 +3,7 @@ import { json, error } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { env } from '$env/dynamic/private';
+import { readRepoConfig } from '$lib/server/repoConfig';
 import { scoreRepo } from '$lib/scorer';
 import type { RepoConfig } from '$lib/types';
 
@@ -25,12 +26,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   // Validate path is in the configured repo list to prevent arbitrary filesystem access
-  let configs: RepoConfig[] = [];
-  try {
-    configs = JSON.parse(await readFile('repos.config.json', 'utf-8'));
-  } catch {
-    throw error(500, 'repos.config.json not found or invalid');
-  }
+  const configs: RepoConfig[] = await readRepoConfig();
   if (!configs.some(r => r.name === name && r.path === path)) {
     throw error(400, `Repo "${name}" not found in repos.config.json`);
   }
@@ -53,8 +49,8 @@ export const POST: RequestHandler = async ({ request }) => {
     return json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg === 'MLX_UNREACHABLE') {
-      throw error(503, 'MLX server unreachable — is it running?');
+    if (msg.startsWith('MLX_UNREACHABLE')) {
+      throw error(503, `MLX server unreachable: ${msg.replace(/^MLX_UNREACHABLE:?\s*/, '')}`);
     }
     if (msg === 'PARSE_FAILED') {
       throw error(500, 'Scoring failed — model response could not be parsed');

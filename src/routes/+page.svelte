@@ -33,8 +33,13 @@
 </script>
 
 <main>
-  <h1>Repo Scorer</h1>
-  <p class="subtitle">Agentic Repository Maturity Dashboard</p>
+  <div class="page-header">
+    <div>
+      <h1>Repo Scorer</h1>
+      <p class="subtitle">Agentic Repository Maturity Dashboard</p>
+    </div>
+    <a class="button-link" href="/settings">Settings</a>
+  </div>
 
   <table>
     <thead>

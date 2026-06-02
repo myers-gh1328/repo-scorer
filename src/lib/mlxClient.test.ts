@@ -47,6 +47,19 @@ describe('callMLX', () => {
     expect(result).toBe('{"score":72}');
   });
 
+  it('falls back to reasoning_content when message content is empty', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '', reasoning_content: '{"score":72}' } }]
+      })
+    }));
+
+    const result = await callMLX(config, 'prompt');
+    expect(result).toBe('{"score":72}');
+  });
+
+
   it('throws when the response status is not ok', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
