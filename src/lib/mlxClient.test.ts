@@ -83,6 +83,20 @@ describe('callMLX', () => {
     expect(body.model).toBe('gemma-4-27b');
   });
 
+  it('uses a custom max token limit when provided', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: '{}' } }] })
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    await callMLX({ baseUrl: 'http://localhost:8080', maxTokens: 4096 }, 'prompt');
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.max_tokens).toBe(4096);
+  });
+
+
   it('sends response_format when provided', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,

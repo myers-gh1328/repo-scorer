@@ -5,7 +5,7 @@ export async function callMLX(config: MLXConfig, prompt: string): Promise<string
     model: config.model ?? 'local',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.1,
-    max_tokens: 2048
+    max_tokens: config.maxTokens ?? 2048
   };
   if (config.responseFormat) {
     body.response_format = config.responseFormat;

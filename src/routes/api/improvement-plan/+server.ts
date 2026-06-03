@@ -74,6 +74,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const plan = await generateImprovementPlan(name, path, rubric, score, {
 			baseUrl: mlxBaseUrl,
+			maxTokens: 4096,
 			responseFormat: useJsonSchema ? improvementPlanResponseFormat : undefined
 		}, PLANS_PATH, aiTooling);
 		const exported = await exportImprovementPlanToRepo(path, plan);

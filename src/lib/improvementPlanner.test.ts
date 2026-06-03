@@ -319,6 +319,33 @@ describe('generateImprovementPlan', () => {
 		expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(1);
 	});
 
+	it('allows planned target parent directory references with sentence punctuation', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		const planWithPlannedPathReferences = {
+			...validPlan,
+			prioritizedTasks: [{
+				...validPlan.prioritizedTasks[1],
+				targetFiles: ['source/docs/agent-handoff.md'],
+				instructions: 'Create source/docs/agent-handoff.md under source/docs. Include a concise handoff checklist that tells agents which repo files to inspect before changing implementation code.',
+				validationCommands: ['test -f source/docs/agent-handoff.md']
+			}, validPlan.prioritizedTasks[0], validPlan.prioritizedTasks[2]]
+		};
+		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(planWithPlannedPathReferences));
+
+		const result = await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('source/docs/agent-handoff.md');
+		expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(1);
+	});
+
 	it('includes repository inventory in repair prompts', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
