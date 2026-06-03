@@ -253,6 +253,26 @@ describe('generateImprovementPlan', () => {
 		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('Validation errors to fix');
 		expect(result.prioritizedTasks).toHaveLength(3);
 		expect(result.summary).not.toContain('fallback');
+		expect(result.repairCount).toBe(1);
+	});
+
+	it('includes discovered validation command candidates in the prompt', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		await writeFile(join(repoDir, 'AGENTS.md'), 'Before completion, run dotnet test AiAppTriage.slnx.');
+		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(validPlan));
+
+		await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(vi.mocked(callMLX).mock.calls[0][1]).toContain('VALIDATION COMMAND CANDIDATES');
+		expect(vi.mocked(callMLX).mock.calls[0][1]).toContain('dotnet test AiAppTriage.slnx');
 	});
 
 	it('repairs plans that reference nonexistent repo paths', async () => {
@@ -341,6 +361,37 @@ describe('generateImprovementPlan', () => {
 		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('validationCommands are too weak');
 	});
 
+	it('uses one extra retry for quality-only validation failures', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		const weakValidationPlan = {
+			...validPlan,
+			prioritizedTasks: validPlan.prioritizedTasks.map(task => ({
+				...task,
+				validationCommands: task.targetFiles.map(file => `test -f ${file}`)
+			}))
+		};
+		vi.mocked(callMLX)
+			.mockResolvedValueOnce(JSON.stringify(weakValidationPlan))
+			.mockResolvedValueOnce(JSON.stringify(weakValidationPlan))
+			.mockResolvedValueOnce(JSON.stringify(validPlan));
+
+		const result = await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(3);
+		expect(result.repairCount).toBe(2);
+		expect(result.qualityWarnings).toEqual(expect.arrayContaining([
+			expect.stringContaining('validationCommands are too weak')
+		]));
+	});
+
 	it('allows planned parent directories and generic SKILL.md wording', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
@@ -401,6 +452,33 @@ describe('generateImprovementPlan', () => {
 		);
 
 		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('source/docs/agent-handoff.md');
+		expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(1);
+	});
+
+	it('allows references to planned target basenames except generic SKILL.md', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		const planWithBasenameReferences = {
+			...validPlan,
+			prioritizedTasks: [{
+				...validPlan.prioritizedTasks[0],
+				targetFiles: ['.agent/rules/core-conventions.md'],
+				instructions: 'Create .agent/rules/core-conventions.md and make core-conventions.md describe concrete repo conventions, validation commands, and ownership boundaries for agents.',
+				validationCommands: ['grep -q "Core" .agent/rules/core-conventions.md']
+			}, validPlan.prioritizedTasks[1], validPlan.prioritizedTasks[2]]
+		};
+		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(planWithBasenameReferences));
+
+		const result = await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.agent/rules/core-conventions.md');
 		expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(1);
 	});
 

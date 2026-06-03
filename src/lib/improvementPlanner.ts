@@ -17,6 +17,10 @@ import type {
 const CATEGORY_KEYS = Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[];
 const IMPACT_VALUES = ['high', 'medium', 'low'] as const;
 const EXPORTED_PLAN_PATH = '.agent/improvement-plan.md';
+const QUALITY_ERROR_MARKERS = [
+	'should not only create agent artifact files',
+	'validationCommands are too weak'
+];
 const AGENTS_POINTER = `## Agent Improvement Plan
 
 This repository has a generated agent-facing improvement plan at \`${EXPORTED_PLAN_PATH}\`. Review it before making repo maturity improvements.
@@ -33,14 +37,27 @@ export async function generateImprovementPlan(
 ): Promise<ImprovementPlan> {
 	const scan = await scanRepo(repoPath);
 	const inventory = await collectRepoInventory(repoPath);
-	const raw = await callPlanModel(mlxConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, inventory, aiTooling));
+	const validationCandidates = await collectValidationCommandCandidates(repoPath, inventory);
+	const raw = await callPlanModel(mlxConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, inventory, validationCandidates, aiTooling));
+	let repairCount = 0;
 	let plan = prepareGeneratedPlan(tryParseImprovementPlan(raw, repoName, score), aiTooling);
 	let validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Response was not valid JSON matching the required plan schema.'];
+	const qualityWarnings = new Set(validationErrors.filter(isQualityValidationError));
 
 	if (!plan || validationErrors.length > 0) {
-		const repaired = await callPlanModel(mlxConfig, buildRepairPrompt(raw, repoName, score, validationErrors, inventory, aiTooling));
+		const repaired = await callPlanModel(mlxConfig, buildRepairPrompt(raw, repoName, score, validationErrors, inventory, validationCandidates, aiTooling));
+		repairCount += 1;
 		plan = prepareGeneratedPlan(tryParseImprovementPlan(repaired, repoName, score), aiTooling);
 		validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Repaired response was not valid JSON matching the required plan schema.'];
+		validationErrors.filter(isQualityValidationError).forEach(error => qualityWarnings.add(error));
+
+		if (plan && validationErrors.length > 0 && validationErrors.every(isQualityValidationError)) {
+			const repairedQuality = await callPlanModel(mlxConfig, buildRepairPrompt(repaired, repoName, score, validationErrors, inventory, validationCandidates, aiTooling));
+			repairCount += 1;
+			plan = prepareGeneratedPlan(tryParseImprovementPlan(repairedQuality, repoName, score), aiTooling);
+			validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Quality repair response was not valid JSON matching the required plan schema.'];
+			validationErrors.filter(isQualityValidationError).forEach(error => qualityWarnings.add(error));
+		}
 	}
 
 	if (!plan || validationErrors.length > 0) {
@@ -48,6 +65,8 @@ export async function generateImprovementPlan(
 	}
 
 	plan.generatedAt = new Date().toISOString();
+	plan.repairCount = repairCount;
+	plan.qualityWarnings = [...qualityWarnings];
 	plan.markdown = renderImprovementMarkdown(plan);
 
 	let plans: ImprovementPlansStore = {};
@@ -216,10 +235,71 @@ function validateImprovementPlan(plan: ImprovementPlan, aiTooling: AiTooling, in
 	return errors;
 }
 
+function isQualityValidationError(error: string): boolean {
+	return QUALITY_ERROR_MARKERS.some(marker => error.includes(marker));
+}
+
 interface RepoInventory {
 	files: Set<string>;
 	dirs: Set<string>;
 	list: string[];
+}
+
+async function collectValidationCommandCandidates(repoPath: string, inventory: RepoInventory): Promise<string[]> {
+	const candidatePaths = [
+		'AGENTS.md',
+		'README.md',
+		'package.json',
+		'Makefile',
+		...inventory.list.filter(path => path.startsWith('.github/workflows/') && (path.endsWith('.yml') || path.endsWith('.yaml'))),
+		...inventory.list.filter(path => path.endsWith('.slnx') || path.endsWith('.sln'))
+	].filter((path, index, all) => all.indexOf(path) === index);
+
+	const commands = new Set<string>();
+	for (const path of candidatePaths.slice(0, 16)) {
+		let content = '';
+		try {
+			content = await readFile(join(repoPath, path), 'utf-8');
+		} catch {
+			continue;
+		}
+		extractValidationCommands(path, content).forEach(command => commands.add(command));
+	}
+	return [...commands].slice(0, 8);
+}
+
+function extractValidationCommands(path: string, content: string): string[] {
+	if (path === 'package.json') {
+		return extractPackageScriptCommands(content);
+	}
+	const commands = new Set<string>();
+	const patterns = [
+		/\b(?:npm|pnpm|yarn) run [A-Za-z0-9:_-]+/g,
+		/\bdotnet test(?: [A-Za-z0-9_./-]+)?/g,
+		/\bmake [A-Za-z0-9:_-]+/g,
+		/\bpytest(?: [A-Za-z0-9_./-]+)?/g,
+		/\bcargo test\b/g,
+		/\bgo test \.\/\.\.\./g
+	];
+	for (const pattern of patterns) {
+		for (const match of content.match(pattern) ?? []) {
+			commands.add(match.trim());
+		}
+	}
+	return [...commands];
+}
+
+function extractPackageScriptCommands(content: string): string[] {
+	try {
+		const parsed = JSON.parse(content);
+		if (!isRecord(parsed) || !isRecord(parsed.scripts)) return [];
+		return Object.keys(parsed.scripts)
+			.filter(name => /^(check|test|lint|build|typecheck|validate)/.test(name))
+			.map(name => `npm run ${name}`)
+			.slice(0, 6);
+	} catch {
+		return [];
+	}
 }
 
 async function collectRepoInventory(repoPath: string): Promise<RepoInventory> {
@@ -275,7 +355,9 @@ function referencedRepoPaths(task: ImprovementTask): string[] {
 function isPlannedTarget(path: string, targetFiles: string[]): boolean {
 	return targetFiles.some(target => {
 		const normalizedTarget = normalizeReferencedPath(target);
+		const targetName = normalizedTarget.split('/').at(-1);
 		return path === normalizedTarget
+			|| (path === targetName && targetName !== 'SKILL.md')
 			|| path.startsWith(`${normalizedTarget}/`)
 			|| normalizedTarget.startsWith(`${path}/`);
 	});
@@ -481,6 +563,7 @@ function buildImprovementPrompt(
 	score: ScoreResult,
 	files: { relativePath: string; content: string }[],
 	inventory: RepoInventory,
+	validationCandidates: string[],
 	aiTooling: AiTooling
 ): string {
 	const evidence = files.length === 0
@@ -504,6 +587,10 @@ ${evidence}
 ## REPOSITORY PATH INVENTORY
 Use these paths when referencing existing files or directories. Do not cite existing repo paths that are absent from this inventory.
 ${inventory.list.map(path => `- ${path}`).join('\n')}
+
+## VALIDATION COMMAND CANDIDATES
+Prefer these commands when they fit the task. If none fit, use a concrete content check such as grep -q.
+${validationCandidates.length > 0 ? validationCandidates.map(command => `- ${command}`).join('\n') : '- No validation commands were found in repo files.'}
 
 ## TASK
 Return ONLY a JSON object that a human or coding LLM can use to improve the repository.
@@ -529,6 +616,12 @@ Required schema:
     }
   ]
 }
+
+Plan quality hints:
+- A good small-model plan often has one task that updates existing guidance such as AGENTS.md or README.md.
+- A good small-model plan often has one task that creates scoped rules for a real source, docs, or infra path from the inventory.
+- A good small-model plan often has one task that creates a reusable workflow skill or verifier agent tied to real repo files.
+- Prefer validation commands from VALIDATION COMMAND CANDIDATES. If using a new-file existence check, also include at least one grep/content check or repo test/check command somewhere in the plan.
 
 Rules:
 - Include exactly 3 to 5 prioritized tasks. This is a next-action batch, not a full roadmap.
@@ -588,9 +681,11 @@ function buildRepairPrompt(
 	score: ScoreResult,
 	validationErrors: string[],
 	inventory: RepoInventory,
+	validationCandidates: string[],
 	aiTooling: AiTooling
 ): string {
-	return `Convert the text below into one valid JSON object for an improvement plan for ${repoName}. Return raw JSON only.
+	const repairInventory = inventory.list.slice(0, 200);
+	return `Return one valid JSON object for an improvement plan for ${repoName}. Do not include markdown, comments, code fences, or explanation.
 
 Current score:
 ${JSON.stringify(score, null, 2)}
@@ -601,9 +696,15 @@ ${toolingInstruction(aiTooling)}
 Validation errors to fix:
 ${validationErrors.map(error => `- ${error}`).join('\n')}
 
+You must fix every listed validation error. Preserve valid repo-specific references where possible. Do not remove tasks unless a task cannot be repaired.
+
 Repository path inventory:
 Use these paths when referencing existing files or directories. Do not cite existing repo paths that are absent from this inventory unless they are new files listed in targetFiles.
-${inventory.list.map(path => `- ${path}`).join('\n')}
+${repairInventory.map(path => `- ${path}`).join('\n')}
+
+Validation command candidates:
+Prefer these commands when they fit the task. If none fit, use a concrete content check such as grep -q.
+${validationCandidates.length > 0 ? validationCandidates.map(command => `- ${command}`).join('\n') : '- No validation commands were found in repo files.'}
 
 Required keys:
 - summary
@@ -611,7 +712,7 @@ Required keys:
 - weakestCategories
 - prioritizedTasks with title, category, impact, effort, targetFiles, instructions, acceptanceCriteria, validationCommands
 
-Rules:
+Repair rules:
 - Return exactly one raw JSON object.
 - Include exactly 3 to 5 prioritizedTasks.
 - Every task needs concrete targetFiles, specific instructions, at least two acceptanceCriteria, and at least one validationCommands entry.
@@ -619,7 +720,7 @@ Rules:
 - Do not use only existence/listing checks. Include at least one stronger repo validation command or content check such as grep, npm run check, dotnet test, make test, or pytest.
 - Generic tooling must use AGENTS.md and .agent/**, not vendor-specific files.
 
-Text to convert:
+Original model output to repair:
 ${raw}`;
 }
 

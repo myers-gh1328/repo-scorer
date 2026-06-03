@@ -81,6 +81,8 @@ export interface ImprovementPlan {
   exportedAt?: string;
   exportedPlanPath?: string;
   exportedAgentsPath?: string;
+  repairCount?: number;
+  qualityWarnings?: string[];
   repoName: string;
   summary: string;
   currentScore: number;
