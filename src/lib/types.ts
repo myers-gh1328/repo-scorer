@@ -98,6 +98,7 @@ export interface ImprovementPlansStore {
 export interface MLXConfig {
   baseUrl: string;
   model?: string;
+  maxTokens?: number;
   responseFormat?: MLXResponseFormat;
 }
 

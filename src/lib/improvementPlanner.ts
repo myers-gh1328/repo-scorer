@@ -277,6 +277,7 @@ function isPlannedTarget(path: string, targetFiles: string[]): boolean {
 
 function normalizeReferencedPath(path: string): string {
 	return path
+		.replace(/[.,;:!?]+$/g, '')
 		.replace(/^\.\//, '')
 		.replace(/\*\*?\/?$/g, '')
 		.replace(/\/\.$/, '')

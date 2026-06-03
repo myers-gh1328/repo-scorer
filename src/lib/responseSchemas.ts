@@ -38,25 +38,21 @@ export const improvementPlanResponseFormat: MLXResponseFormat = {
 		name: 'improvement_plan',
 		schema: {
 			type: 'object',
-			additionalProperties: false,
 			required: ['summary', 'strongestCategories', 'weakestCategories', 'prioritizedTasks'],
 			properties: {
 				summary: { type: 'string' },
 				strongestCategories: {
 					type: 'array',
-					items: { type: 'string', enum: CATEGORY_KEYS }
+					items: { type: 'string' }
 				},
 				weakestCategories: {
 					type: 'array',
-					items: { type: 'string', enum: CATEGORY_KEYS }
+					items: { type: 'string' }
 				},
 				prioritizedTasks: {
 					type: 'array',
-					minItems: 3,
-					maxItems: 5,
 					items: {
 						type: 'object',
-						additionalProperties: false,
 						required: [
 							'title',
 							'category',
@@ -69,9 +65,9 @@ export const improvementPlanResponseFormat: MLXResponseFormat = {
 						],
 						properties: {
 							title: { type: 'string' },
-							category: { type: 'string', enum: CATEGORY_KEYS },
-							impact: { type: 'string', enum: ['high', 'medium', 'low'] },
-							effort: { type: 'string', enum: ['high', 'medium', 'low'] },
+							category: { type: 'string' },
+							impact: { type: 'string' },
+							effort: { type: 'string' },
 							targetFiles: { type: 'array', items: { type: 'string' } },
 							instructions: { type: 'string' },
 							acceptanceCriteria: { type: 'array', items: { type: 'string' } },
@@ -83,4 +79,3 @@ export const improvementPlanResponseFormat: MLXResponseFormat = {
 		}
 	}
 };
-
