@@ -92,7 +92,7 @@ const validPlan = {
 			targetFiles: ['AGENTS.md'],
 			instructions: 'Update the repo guidance with the exact commands agents should run before reporting maturity-improvement changes as complete.',
 			acceptanceCriteria: ['AGENTS.md lists validation commands', 'Guidance explains when to run each command'],
-			validationCommands: ['test -f AGENTS.md']
+			validationCommands: ['grep -q "validation" AGENTS.md']
 		}
 	]
 };
@@ -281,6 +281,64 @@ describe('generateImprovementPlan', () => {
 		);
 
 		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('src/DefinitelyMissing.cs');
+	});
+
+	it('repairs plans that only create agent artifact files', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		const agentOnlyPlan = {
+			...validPlan,
+			prioritizedTasks: validPlan.prioritizedTasks.map((task, index) => ({
+				...task,
+				targetFiles: [
+					index === 0
+						? '.agent/rules/backend.md'
+						: index === 1
+							? '.agent/skills/repo-improvement/SKILL.md'
+							: '.agent/agents/verifier.agent.md'
+				]
+			}))
+		};
+		vi.mocked(callMLX)
+			.mockResolvedValueOnce(JSON.stringify(agentOnlyPlan))
+			.mockResolvedValueOnce(JSON.stringify(validPlan));
+
+		await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('should not only create agent artifact files');
+	});
+
+	it('repairs plans that only use weak existence validation', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		const weakValidationPlan = {
+			...validPlan,
+			prioritizedTasks: validPlan.prioritizedTasks.map(task => ({
+				...task,
+				validationCommands: task.targetFiles.map(file => `test -f ${file}`)
+			}))
+		};
+		vi.mocked(callMLX)
+			.mockResolvedValueOnce(JSON.stringify(weakValidationPlan))
+			.mockResolvedValueOnce(JSON.stringify(validPlan));
+
+		await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			score,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json')
+		);
+
+		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('validationCommands are too weak');
 	});
 
 	it('allows planned parent directories and generic SKILL.md wording', async () => {

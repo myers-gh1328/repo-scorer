@@ -178,6 +178,12 @@ function validateImprovementPlan(plan: ImprovementPlan, aiTooling: AiTooling, in
 	if (!plan.summary || plan.summary.length < 40) {
 		errors.push('summary must be a concrete 1-2 sentence repo-specific summary.');
 	}
+	if (plan.prioritizedTasks.length > 0 && plan.prioritizedTasks.every(task => task.targetFiles.every(isAgentArtifactPath))) {
+		errors.push('prioritizedTasks should not only create agent artifact files; include at least one task that updates an existing repo guidance, workflow, validation, or documentation file from the repository inventory.');
+	}
+	if (plan.prioritizedTasks.length > 0 && plan.prioritizedTasks.every(task => task.validationCommands.every(isWeakValidationCommand))) {
+		errors.push('validationCommands are too weak across the plan; include at least one repo validation command or content check such as grep, npm run check, dotnet test, make test, or pytest.');
+	}
 
 	plan.prioritizedTasks.forEach((task, index) => {
 		const label = `Task ${index + 1}`;
@@ -291,6 +297,24 @@ function inventoryHasPath(inventory: RepoInventory, path: string): boolean {
 		return [...inventory.files, ...inventory.dirs].some(item => item.startsWith(prefix));
 	}
 	return false;
+}
+
+function isAgentArtifactPath(file: string): boolean {
+	return file.startsWith('.agent/')
+		|| file.startsWith('.cursor/')
+		|| file.startsWith('.claude/')
+		|| file.startsWith('.windsurf/')
+		|| file.startsWith('.github/copilot-instructions.md')
+		|| file.startsWith('.github/instructions/')
+		|| file.startsWith('.github/prompts/');
+}
+
+function isWeakValidationCommand(command: string): boolean {
+	const normalized = command.trim().toLowerCase();
+	if (!normalized) return true;
+	if (/^(test \-f|ls |dir |stat )/.test(normalized)) return true;
+	if (/^(grep|rg|npm |pnpm |yarn |dotnet |make |pytest|cargo |go test|python |python3 )/.test(normalized)) return false;
+	return normalized.includes('verify') || normalized.includes('manual');
 }
 
 function isConcreteTargetFile(file: string): boolean {
@@ -510,6 +534,7 @@ Rules:
 - Include exactly 3 to 5 prioritized tasks. This is a next-action batch, not a full roadmap.
 - Optimize for the highest score impact first.
 - Each task must be independently actionable in one coding-agent session.
+- At least one task must improve or update an existing repo file from REPOSITORY PATH INVENTORY, such as AGENTS.md, README.md, package scripts, CI workflow files, docs, or validation workflow guidance. Do not make every task only create new .agent files.
 - Prefer portable, agent-agnostic files such as AGENTS.md, .agent/improvement-plan.md, .agent/rules/*.md, .agent/skills/*/SKILL.md, .agent/agents/*.md, docs/adr/*.md, Makefile, package scripts, and CI workflow files when CI already exists.
 - If AI TOOLING TARGET is generic, do not recommend tool/vendor-specific files such as .cursor/**, .claude/**, .windsurf/**, or .github/copilot-instructions.md.
 - If AI TOOLING TARGET names a specific tool, recommend that tool's conventional files where appropriate.
@@ -517,7 +542,7 @@ Rules:
 - References to existing source, test, docs, schemas, or config files must use paths present in REPOSITORY PATH INVENTORY.
 - New files are allowed only when they are listed in targetFiles.
 - Every task must have at least two acceptanceCriteria.
-- Every task must have at least one validationCommands entry, even if it is a manual verification command such as "test -f AGENTS.md".
+- Every task must have at least one validationCommands entry. Existence checks such as "test -f ..." are allowed for new files, but at least one task in the plan must include a stronger repo validation command or content check such as "npm run check", "dotnet test ...", "make test", "pytest", or "grep -q ...".
 - Tie each task to one weak or improvable category.
 - Do not invent product facts not supported by the evidence.
 - Return exactly one raw JSON object. Do not return markdown, commentary, code fences, or explanations.
@@ -590,6 +615,8 @@ Rules:
 - Return exactly one raw JSON object.
 - Include exactly 3 to 5 prioritizedTasks.
 - Every task needs concrete targetFiles, specific instructions, at least two acceptanceCriteria, and at least one validationCommands entry.
+- Do not make every task only create new .agent files. Include at least one task that updates an existing repo guidance, workflow, validation, or docs file from the inventory.
+- Do not use only existence/listing checks. Include at least one stronger repo validation command or content check such as grep, npm run check, dotnet test, make test, or pytest.
 - Generic tooling must use AGENTS.md and .agent/**, not vendor-specific files.
 
 Text to convert:
