@@ -38,7 +38,8 @@ describe('scoreRepo', () => {
 
   it('returns a ScoreResult with scoredAt populated', async () => {
     const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
-    expect(result.score).toBe(72);
+    expect(result.score).toBe(63);
+    expect(result.rawScore).toBe(72);
     expect(result.band).toBe('Operational');
     expect(new Date(result.scoredAt).getTime()).toBeGreaterThan(0);
   });
@@ -47,7 +48,8 @@ describe('scoreRepo', () => {
     await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
 
     const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
-    expect(stored.myrepo.score).toBe(72);
+    expect(stored.myrepo.score).toBe(63);
+    expect(stored.myrepo.rawScore).toBe(72);
   });
 
   it('preserves existing scores for other repos', async () => {
@@ -57,7 +59,7 @@ describe('scoreRepo', () => {
 
     const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
     expect(stored.otherapp.score).toBe(50);
-    expect(stored.myrepo.score).toBe(72);
+    expect(stored.myrepo.score).toBe(63);
   });
 
   it('throws LLM_UNREACHABLE when the LLM call fails', async () => {
@@ -74,8 +76,54 @@ describe('scoreRepo', () => {
       .mockResolvedValueOnce(JSON.stringify(mockResult));
 
     const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
-    expect(result.score).toBe(72);
+    expect(result.score).toBe(63);
     expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves rawCategories and records applied caps for inflated model scores', async () => {
+    await writeFile(join(repoDir, 'AGENTS.md'), '# Agent guide');
+    vi.mocked(callLLM).mockResolvedValue(JSON.stringify({
+      ...mockResult,
+      categories: {
+        ...mockResult.categories,
+        skills: 10,
+        ci_pr_automation: 10,
+        tool_manifests_mcp: 10
+      }
+    }));
+
+    const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
+
+    expect(result.rawCategories?.skills).toBe(10);
+    expect(result.categories.skills).toBe(4);
+    expect(result.categories.ci_pr_automation).toBe(3);
+    expect(result.categories.tool_manifests_mcp).toBe(5);
+    expect(result.appliedCaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'skills', originalScore: 10, cappedScore: 4 }),
+      expect.objectContaining({ category: 'ci_pr_automation', originalScore: 10, cappedScore: 3 }),
+      expect.objectContaining({ category: 'tool_manifests_mcp', originalScore: 10, cappedScore: 5 })
+    ]));
+
+    const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
+    expect(stored.myrepo.rawCategories.skills).toBe(10);
+    expect(stored.myrepo.appliedCaps).toHaveLength(3);
+  });
+
+  it('applies caps after repair retry succeeds', async () => {
+    vi.mocked(callLLM)
+      .mockResolvedValueOnce('not valid json {{{{')
+      .mockResolvedValueOnce(JSON.stringify({
+        ...mockResult,
+        categories: {
+          ...mockResult.categories,
+          skills: 10
+        }
+      }));
+
+    const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
+
+    expect(result.rawCategories?.skills).toBe(10);
+    expect(result.categories.skills).toBe(4);
   });
 
   it('throws PARSE_FAILED when both attempts return malformed JSON', async () => {
@@ -127,8 +175,25 @@ describe('parseScoreResult', () => {
     const result = parseScoreResult(raw);
 
     expect(result.categories.persistent_guidance).toBe(12);
+    expect(result.rawCategories?.persistent_guidance).toBe(12);
     expect(result.score).toBe(72);
     expect(result.band).toBe('Operational');
+  });
+
+  it('parses optional category rationales', () => {
+    const result = parseScoreResult(JSON.stringify({
+      ...mockResult,
+      categoryRationales: {
+        skills: {
+          score: 7,
+          evidence: ['docs/agent/TASK_RECIPES.md'],
+          gaps: ['No SKILL.md files found']
+        }
+      }
+    }));
+
+    expect(result.categoryRationales?.skills?.evidence).toEqual(['docs/agent/TASK_RECIPES.md']);
+    expect(result.categoryRationales?.skills?.gaps).toEqual(['No SKILL.md files found']);
   });
 
   it('defaults optional string arrays when the model omits them', () => {
