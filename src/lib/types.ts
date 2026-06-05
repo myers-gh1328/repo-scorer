@@ -18,6 +18,22 @@ export interface CategoryScores {
   onboarding_discoverability: number;
 }
 
+export interface CategoryRationale {
+  score: number;
+  evidence: string[];
+  gaps: string[];
+}
+
+export type CategoryRationales = Partial<Record<keyof CategoryScores, CategoryRationale>>;
+
+export interface AppliedScoreCap {
+  category: keyof CategoryScores;
+  originalScore: number;
+  cappedScore: number;
+  maxScore: number;
+  reason: string;
+}
+
 export const CATEGORY_MAX: CategoryScores = {
   persistent_guidance: 15,
   scoped_rules: 10,
@@ -53,9 +69,13 @@ export type HealthBand = 'Fragile' | 'Emerging' | 'Operational' | 'Managed' | 'M
 export interface ScoreResult {
   scoredAt: string;
   score: number;
+  rawScore?: number;
   band: HealthBand;
   primaryLanguage: string;
+  rawCategories?: CategoryScores;
   categories: CategoryScores;
+  categoryRationales?: CategoryRationales;
+  appliedCaps?: AppliedScoreCap[];
   qualityFlags: string[];
   riskFlags: string[];
   recommendations: string[];

@@ -49,6 +49,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const result = await scoreRepo(name, path, rubric, {
       baseUrl: llmBaseUrl,
       model: llmModel,
+      maxTokens: 4096,
       responseFormat: useJsonSchema ? scoreResponseFormat : undefined
     }, SCORES_PATH);
     return json(result);

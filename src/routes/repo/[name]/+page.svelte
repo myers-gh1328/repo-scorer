@@ -139,6 +139,11 @@
       <span style="color:#666; font-size:0.85rem">
         {r.primaryLanguage} · scored {new Date(r.scoredAt).toLocaleString()}
       </span>
+      {#if r.rawScore !== undefined && r.rawScore !== r.score}
+        <span style="color:#888; font-size:0.8rem">
+          Raw model score {r.rawScore}; adjusted by deterministic evidence caps.
+        </span>
+      {/if}
     </div>
 
     <div class="categories section">
@@ -158,6 +163,19 @@
         </div>
       {/each}
     </div>
+
+    {#if r.appliedCaps && r.appliedCaps.length > 0}
+      <div class="section">
+        <h2>Score Adjustments</h2>
+        <ul class="flags">
+          {#each r.appliedCaps as cap}
+            <li style="color:#f39c12">
+              {CATEGORY_LABELS[cap.category]} capped from {cap.originalScore} to {cap.cappedScore}: {cap.reason}
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
 
     {#if r.qualityFlags.length > 0}
       <div class="section">

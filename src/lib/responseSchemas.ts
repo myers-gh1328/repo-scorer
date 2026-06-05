@@ -5,6 +5,18 @@ const CATEGORY_KEYS = Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[];
 const CATEGORY_PROPERTIES = Object.fromEntries(
 	CATEGORY_KEYS.map(key => [key, { type: 'integer', minimum: 0, maximum: CATEGORY_MAX[key] }])
 );
+const CATEGORY_RATIONALE_PROPERTIES = Object.fromEntries(
+	CATEGORY_KEYS.map(key => [key, {
+		type: 'object',
+		additionalProperties: false,
+		required: ['score', 'evidence', 'gaps'],
+		properties: {
+			score: { type: 'integer', minimum: 0, maximum: CATEGORY_MAX[key] },
+			evidence: { type: 'array', items: { type: 'string' } },
+			gaps: { type: 'array', items: { type: 'string' } }
+		}
+	}])
+);
 
 export const scoreResponseFormat: LLMResponseFormat = {
 	type: 'json_schema',
@@ -23,6 +35,11 @@ export const scoreResponseFormat: LLMResponseFormat = {
 					additionalProperties: false,
 					required: CATEGORY_KEYS,
 					properties: CATEGORY_PROPERTIES
+				},
+				categoryRationales: {
+					type: 'object',
+					additionalProperties: false,
+					properties: CATEGORY_RATIONALE_PROPERTIES
 				},
 				qualityFlags: { type: 'array', items: { type: 'string' } },
 				riskFlags: { type: 'array', items: { type: 'string' } },

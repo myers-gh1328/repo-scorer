@@ -2,8 +2,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { scanRepo } from './scanner';
 import { buildPrompt } from './promptBuilder';
 import { callLLM } from './llmClient';
+import { applyEvidenceCaps } from './scoreCaps';
 import { CATEGORY_MAX, bandForScore } from './types';
-import type { CategoryScores, LLMConfig, ScoreResult, ScoresStore } from './types';
+import type { CategoryRationale, CategoryRationales, CategoryScores, LLMConfig, ScoreResult, ScoresStore } from './types';
 
 const CATEGORY_KEYS = Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[];
 
@@ -47,9 +48,13 @@ function normalizeScoreResult(value: unknown): ScoreResult {
   return {
     scoredAt: typeof value.scoredAt === 'string' ? value.scoredAt : '',
     score,
+    rawScore: score,
     band: bandForScore(score),
     primaryLanguage,
+    rawCategories: { ...categories },
     categories,
+    categoryRationales: normalizeCategoryRationales(value.categoryRationales, categories),
+    appliedCaps: [],
     qualityFlags: normalizeStringArray(value.qualityFlags),
     riskFlags: normalizeStringArray(value.riskFlags),
     recommendations: normalizeStringArray(value.recommendations)
@@ -75,6 +80,21 @@ function normalizeStringArray(value: unknown): string[] {
     .filter((item): item is string => typeof item === 'string')
     .map(item => item.trim())
     .filter(Boolean);
+}
+
+function normalizeCategoryRationales(value: unknown, categories: CategoryScores): CategoryRationales {
+  if (!isRecord(value)) return {};
+  const rationales: CategoryRationales = {};
+  for (const key of CATEGORY_KEYS) {
+    const raw = value[key];
+    if (!isRecord(raw)) continue;
+    rationales[key] = {
+      score: parseCategoryScore(key, raw.score ?? categories[key]),
+      evidence: normalizeStringArray(raw.evidence),
+      gaps: normalizeStringArray(raw.gaps)
+    } satisfies CategoryRationale;
+  }
+  return rationales;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -149,6 +169,7 @@ export async function scoreRepo(
     }
   }
 
+  result = applyEvidenceCaps(result, scan.evidence);
   result.scoredAt = new Date().toISOString();
 
   let scores: ScoresStore = {};
@@ -192,6 +213,13 @@ Required schema:
     "governance_observability": <integer 0-5>,
     "versioning_provenance": <integer 0-3>,
     "onboarding_discoverability": <integer 0-2>
+  },
+  "categoryRationales": {
+    "<category_key>": {
+      "score": <integer matching that category score>,
+      "evidence": [<strings citing inventory facts or scanned file paths>],
+      "gaps": [<strings describing missing or weak evidence>]
+    }
   },
   "qualityFlags": [<strings>],
   "riskFlags": [<strings>],
