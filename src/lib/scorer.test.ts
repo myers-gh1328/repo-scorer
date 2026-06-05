@@ -3,10 +3,10 @@ import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-vi.mock('./mlxClient', () => ({ callMLX: vi.fn() }));
+vi.mock('./llmClient', () => ({ callLLM: vi.fn() }));
 
 import { parseScoreResult, scoreRepo } from './scorer';
-import { callMLX } from './mlxClient';
+import { callLLM } from './llmClient';
 
 const mockResult = {
   score: 72,
@@ -33,7 +33,7 @@ describe('scoreRepo', () => {
     repoDir = await mkdtemp(join(tmpdir(), 'scorer-repo-'));
     tmpDir = await mkdtemp(join(tmpdir(), 'scorer-out-'));
     scoresPath = join(tmpDir, 'scores.json');
-    vi.mocked(callMLX).mockResolvedValue(JSON.stringify(mockResult));
+    vi.mocked(callLLM).mockResolvedValue(JSON.stringify(mockResult));
   });
 
   it('returns a ScoreResult with scoredAt populated', async () => {
@@ -60,26 +60,26 @@ describe('scoreRepo', () => {
     expect(stored.myrepo.score).toBe(72);
   });
 
-  it('throws MLX_UNREACHABLE when the MLX call fails', async () => {
-    vi.mocked(callMLX).mockRejectedValue(new Error('ECONNREFUSED'));
+  it('throws LLM_UNREACHABLE when the LLM call fails', async () => {
+    vi.mocked(callLLM).mockRejectedValue(new Error('ECONNREFUSED'));
 
     await expect(
       scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath)
-    ).rejects.toThrow('MLX_UNREACHABLE');
+    ).rejects.toThrow('LLM_UNREACHABLE');
   });
 
   it('retries once on malformed JSON and succeeds on second call', async () => {
-    vi.mocked(callMLX)
+    vi.mocked(callLLM)
       .mockResolvedValueOnce('not valid json {{{{')
       .mockResolvedValueOnce(JSON.stringify(mockResult));
 
     const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
     expect(result.score).toBe(72);
-    expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(2);
   });
 
   it('throws PARSE_FAILED when both attempts return malformed JSON', async () => {
-    vi.mocked(callMLX).mockResolvedValue('not valid json');
+    vi.mocked(callLLM).mockResolvedValue('not valid json');
 
     await expect(
       scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath)
@@ -87,14 +87,14 @@ describe('scoreRepo', () => {
   });
 
   it('asks the model to repair malformed output on retry', async () => {
-    vi.mocked(callMLX)
+    vi.mocked(callLLM)
       .mockResolvedValueOnce('not valid json {{{{')
       .mockResolvedValueOnce(JSON.stringify(mockResult));
 
     await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
 
-    expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('Convert the text below into one valid JSON object');
-    expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('not valid json');
+    expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('Convert the text below into one valid JSON object');
+    expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('not valid json');
   });
 });
 

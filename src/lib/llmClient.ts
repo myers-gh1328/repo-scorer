@@ -1,6 +1,6 @@
-import type { MLXConfig } from './types';
+import type { LLMConfig } from './types';
 
-export async function callMLX(config: MLXConfig, prompt: string): Promise<string> {
+export async function callLLM(config: LLMConfig, prompt: string): Promise<string> {
   const body: Record<string, unknown> = {
     model: config.model ?? 'local',
     messages: [{ role: 'user', content: prompt }],
@@ -18,14 +18,14 @@ export async function callMLX(config: MLXConfig, prompt: string): Promise<string
   });
 
   if (!response.ok) {
-    throw new Error(`MLX returned ${response.status}: ${await response.text()}`);
+    throw new Error(`LLM returned ${response.status}: ${await response.text()}`);
   }
 
   const data = await response.json();
   const message = data?.choices?.[0]?.message;
   const content = message?.content || message?.reasoning_content;
   if (typeof content !== 'string') {
-    throw new Error(`MLX response missing content: ${JSON.stringify(data)}`);
+    throw new Error(`LLM response missing content: ${JSON.stringify(data)}`);
   }
   return content;
 }

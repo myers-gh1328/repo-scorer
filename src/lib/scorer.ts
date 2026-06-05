@@ -1,9 +1,9 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { scanRepo } from './scanner';
 import { buildPrompt } from './promptBuilder';
-import { callMLX } from './mlxClient';
+import { callLLM } from './llmClient';
 import { CATEGORY_MAX, bandForScore } from './types';
-import type { CategoryScores, MLXConfig, ScoreResult, ScoresStore } from './types';
+import type { CategoryScores, LLMConfig, ScoreResult, ScoresStore } from './types';
 
 const CATEGORY_KEYS = Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[];
 
@@ -120,7 +120,7 @@ export async function scoreRepo(
   name: string,
   repoPath: string,
   rubric: string,
-  mlxConfig: MLXConfig,
+  llmConfig: LLMConfig,
   scoresPath: string
 ): Promise<ScoreResult> {
   const scan = await scanRepo(repoPath);
@@ -128,20 +128,20 @@ export async function scoreRepo(
 
   let raw: string;
   try {
-    raw = await callMLX(mlxConfig, prompt);
+    raw = await callLLM(llmConfig, prompt);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`MLX_UNREACHABLE: ${msg}`);
+    throw new Error(`LLM_UNREACHABLE: ${msg}`);
   }
 
   let result = tryParseScoreResult(raw);
   if (!result) {
     let raw2: string;
     try {
-      raw2 = await callMLX(mlxConfig, buildRepairPrompt(raw));
+      raw2 = await callLLM(llmConfig, buildRepairPrompt(raw));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(`MLX_UNREACHABLE: ${msg}`);
+      throw new Error(`LLM_UNREACHABLE: ${msg}`);
     }
     result = tryParseScoreResult(raw2);
     if (!result) {

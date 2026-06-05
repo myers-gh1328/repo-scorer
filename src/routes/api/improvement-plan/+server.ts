@@ -70,10 +70,11 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(400, 'Score this repo before generating an improvement plan');
 	}
 
-	const { mlxBaseUrl, aiTooling, useJsonSchema } = await readAppSettings();
+	const { llmBaseUrl, llmModel, aiTooling, useJsonSchema } = await readAppSettings();
 	try {
 		const plan = await generateImprovementPlan(name, path, rubric, score, {
-			baseUrl: mlxBaseUrl,
+			baseUrl: llmBaseUrl,
+			model: llmModel,
 			maxTokens: 4096,
 			responseFormat: useJsonSchema ? improvementPlanResponseFormat : undefined
 		}, PLANS_PATH, aiTooling);
@@ -81,8 +82,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ ...(await markImprovementPlanExported(PLANS_PATH, name, exported)), exported });
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
-		if (msg.startsWith('MLX_UNREACHABLE')) {
-			throw error(503, `MLX server unreachable: ${msg.replace(/^MLX_UNREACHABLE:?\s*/, '')}`);
+		if (msg.startsWith('LLM_UNREACHABLE')) {
+			throw error(503, `LLM server unreachable: ${msg.replace(/^LLM_UNREACHABLE:?\s*/, '')}`);
 		}
 		if (msg === 'PLAN_PARSE_FAILED') {
 			throw error(500, 'Improvement plan failed — model response could not be parsed');

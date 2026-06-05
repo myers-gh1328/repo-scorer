@@ -97,14 +97,14 @@ export interface ImprovementPlansStore {
   [repoName: string]: ImprovementPlan;
 }
 
-export interface MLXConfig {
+export interface LLMConfig {
   baseUrl: string;
   model?: string;
   maxTokens?: number;
-  responseFormat?: MLXResponseFormat;
+  responseFormat?: LLMResponseFormat;
 }
 
-export interface MLXResponseFormat {
+export interface LLMResponseFormat {
   type: 'json_schema';
   json_schema: {
     name: string;
