@@ -9,10 +9,10 @@ import {
 	markImprovementPlanExported,
 	parseImprovementPlan
 } from './improvementPlanner';
-import { callMLX } from './mlxClient';
+import { callLLM } from './llmClient';
 import type { ScoreResult } from './types';
 
-vi.mock('./mlxClient', () => ({ callMLX: vi.fn() }));
+vi.mock('./llmClient', () => ({ callLLM: vi.fn() }));
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -177,7 +177,7 @@ describe('generateImprovementPlan', () => {
 	it('rewrites vendor-specific recommendations to generic files by default', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
-		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(validPlan));
+		vi.mocked(callLLM).mockResolvedValue(JSON.stringify(validPlan));
 
 		const result = await generateImprovementPlan(
 			'repo-scorer',
@@ -195,7 +195,7 @@ describe('generateImprovementPlan', () => {
 	it('fails when the model cannot repair invalid output', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
-		vi.mocked(callMLX).mockResolvedValue('not valid json');
+		vi.mocked(callLLM).mockResolvedValue('not valid json');
 
 		await expect(generateImprovementPlan(
 			'repo-scorer',
@@ -213,7 +213,7 @@ describe('generateImprovementPlan', () => {
 	it('keeps Cursor recommendations when Cursor is selected', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
-		vi.mocked(callMLX).mockResolvedValue(JSON.stringify({
+		vi.mocked(callLLM).mockResolvedValue(JSON.stringify({
 			...validPlan,
 			prioritizedTasks: [{
 				...validPlan.prioritizedTasks[0],
@@ -237,7 +237,7 @@ describe('generateImprovementPlan', () => {
 	it('repairs parsed plans that fail validation before falling back', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
-		vi.mocked(callMLX)
+		vi.mocked(callLLM)
 			.mockResolvedValueOnce(JSON.stringify(plan))
 			.mockResolvedValueOnce(JSON.stringify(validPlan));
 
@@ -250,7 +250,7 @@ describe('generateImprovementPlan', () => {
 			join(outDir, 'improvement-plans.json')
 		);
 
-		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('Validation errors to fix');
+		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('Validation errors to fix');
 		expect(result.prioritizedTasks).toHaveLength(3);
 		expect(result.summary).not.toContain('fallback');
 		expect(result.repairCount).toBe(1);
@@ -260,7 +260,7 @@ describe('generateImprovementPlan', () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		await writeFile(join(repoDir, 'AGENTS.md'), 'Before completion, run dotnet test AiAppTriage.slnx.');
-		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(validPlan));
+		vi.mocked(callLLM).mockResolvedValue(JSON.stringify(validPlan));
 
 		await generateImprovementPlan(
 			'repo-scorer',
@@ -271,8 +271,8 @@ describe('generateImprovementPlan', () => {
 			join(outDir, 'improvement-plans.json')
 		);
 
-		expect(vi.mocked(callMLX).mock.calls[0][1]).toContain('VALIDATION COMMAND CANDIDATES');
-		expect(vi.mocked(callMLX).mock.calls[0][1]).toContain('dotnet test AiAppTriage.slnx');
+		expect(vi.mocked(callLLM).mock.calls[0][1]).toContain('VALIDATION COMMAND CANDIDATES');
+		expect(vi.mocked(callLLM).mock.calls[0][1]).toContain('dotnet test AiAppTriage.slnx');
 	});
 
 	it('repairs plans that reference nonexistent repo paths', async () => {
@@ -287,7 +287,7 @@ describe('generateImprovementPlan', () => {
 				instructions: 'Update src/DefinitelyMissing.cs with concrete agent-facing guidance, then compare it against src/RealFile.cs so the implementation follows existing conventions.'
 			}, ...validPlan.prioritizedTasks.slice(1)]
 		};
-		vi.mocked(callMLX)
+		vi.mocked(callLLM)
 			.mockResolvedValueOnce(JSON.stringify(invalidReferencePlan))
 			.mockResolvedValueOnce(JSON.stringify(validPlan));
 
@@ -300,7 +300,7 @@ describe('generateImprovementPlan', () => {
 			join(outDir, 'improvement-plans.json')
 		);
 
-		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('src/DefinitelyMissing.cs');
+		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('src/DefinitelyMissing.cs');
 	});
 
 	it('repairs plans that only create agent artifact files', async () => {
@@ -319,7 +319,7 @@ describe('generateImprovementPlan', () => {
 				]
 			}))
 		};
-		vi.mocked(callMLX)
+		vi.mocked(callLLM)
 			.mockResolvedValueOnce(JSON.stringify(agentOnlyPlan))
 			.mockResolvedValueOnce(JSON.stringify(validPlan));
 
@@ -332,7 +332,7 @@ describe('generateImprovementPlan', () => {
 			join(outDir, 'improvement-plans.json')
 		);
 
-		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('should not only create agent artifact files');
+		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('should not only create agent artifact files');
 	});
 
 	it('repairs plans that only use weak existence validation', async () => {
@@ -345,7 +345,7 @@ describe('generateImprovementPlan', () => {
 				validationCommands: task.targetFiles.map(file => `test -f ${file}`)
 			}))
 		};
-		vi.mocked(callMLX)
+		vi.mocked(callLLM)
 			.mockResolvedValueOnce(JSON.stringify(weakValidationPlan))
 			.mockResolvedValueOnce(JSON.stringify(validPlan));
 
@@ -358,7 +358,7 @@ describe('generateImprovementPlan', () => {
 			join(outDir, 'improvement-plans.json')
 		);
 
-		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('validationCommands are too weak');
+		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('validationCommands are too weak');
 	});
 
 	it('uses one extra retry for quality-only validation failures', async () => {
@@ -371,7 +371,7 @@ describe('generateImprovementPlan', () => {
 				validationCommands: task.targetFiles.map(file => `test -f ${file}`)
 			}))
 		};
-		vi.mocked(callMLX)
+		vi.mocked(callLLM)
 			.mockResolvedValueOnce(JSON.stringify(weakValidationPlan))
 			.mockResolvedValueOnce(JSON.stringify(weakValidationPlan))
 			.mockResolvedValueOnce(JSON.stringify(validPlan));
@@ -385,7 +385,7 @@ describe('generateImprovementPlan', () => {
 			join(outDir, 'improvement-plans.json')
 		);
 
-		expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(3);
+		expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(3);
 		expect(result.repairCount).toBe(2);
 		expect(result.qualityWarnings).toEqual(expect.arrayContaining([
 			expect.stringContaining('validationCommands are too weak')
@@ -413,7 +413,7 @@ describe('generateImprovementPlan', () => {
 				validPlan.prioritizedTasks[2]
 			]
 		};
-		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(directoryReferencePlan));
+		vi.mocked(callLLM).mockResolvedValue(JSON.stringify(directoryReferencePlan));
 
 		const result = await generateImprovementPlan(
 			'repo-scorer',
@@ -425,7 +425,7 @@ describe('generateImprovementPlan', () => {
 		);
 
 		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.agent/rules/repo-guidance.md');
-		expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(1);
 	});
 
 	it('allows planned target parent directory references with sentence punctuation', async () => {
@@ -440,7 +440,7 @@ describe('generateImprovementPlan', () => {
 				validationCommands: ['test -f source/docs/agent-handoff.md']
 			}, validPlan.prioritizedTasks[0], validPlan.prioritizedTasks[2]]
 		};
-		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(planWithPlannedPathReferences));
+		vi.mocked(callLLM).mockResolvedValue(JSON.stringify(planWithPlannedPathReferences));
 
 		const result = await generateImprovementPlan(
 			'repo-scorer',
@@ -452,7 +452,7 @@ describe('generateImprovementPlan', () => {
 		);
 
 		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('source/docs/agent-handoff.md');
-		expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(1);
 	});
 
 	it('allows references to planned target basenames except generic SKILL.md', async () => {
@@ -467,7 +467,7 @@ describe('generateImprovementPlan', () => {
 				validationCommands: ['grep -q "Core" .agent/rules/core-conventions.md']
 			}, validPlan.prioritizedTasks[1], validPlan.prioritizedTasks[2]]
 		};
-		vi.mocked(callMLX).mockResolvedValue(JSON.stringify(planWithBasenameReferences));
+		vi.mocked(callLLM).mockResolvedValue(JSON.stringify(planWithBasenameReferences));
 
 		const result = await generateImprovementPlan(
 			'repo-scorer',
@@ -479,7 +479,7 @@ describe('generateImprovementPlan', () => {
 		);
 
 		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.agent/rules/core-conventions.md');
-		expect(vi.mocked(callMLX)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(1);
 	});
 
 	it('includes repository inventory in repair prompts', async () => {
@@ -494,7 +494,7 @@ describe('generateImprovementPlan', () => {
 				instructions: 'Update src/MissingThing.ts with repo-specific guidance, then compare it with src/lib/scorer.ts to keep the implementation consistent.'
 			}, ...validPlan.prioritizedTasks.slice(1)]
 		};
-		vi.mocked(callMLX)
+		vi.mocked(callLLM)
 			.mockResolvedValueOnce(JSON.stringify(invalidReferencePlan))
 			.mockResolvedValueOnce(JSON.stringify(validPlan));
 
@@ -507,7 +507,7 @@ describe('generateImprovementPlan', () => {
 			join(outDir, 'improvement-plans.json')
 		);
 
-		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('Repository path inventory');
-		expect(vi.mocked(callMLX).mock.calls[1][1]).toContain('src/lib/scorer.ts');
+		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('Repository path inventory');
+		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('src/lib/scorer.ts');
 	});
 });

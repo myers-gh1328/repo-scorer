@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { scanRepo } from './scanner';
-import { callMLX } from './mlxClient';
+import { callLLM } from './llmClient';
 import { CATEGORY_LABELS, CATEGORY_MAX } from './types';
 import type { AiTooling } from './server/appSettings';
 import type {
@@ -10,7 +10,7 @@ import type {
 	ImprovementPlan,
 	ImprovementPlansStore,
 	ImprovementTask,
-	MLXConfig,
+	LLMConfig,
 	ScoreResult
 } from './types';
 
@@ -31,28 +31,28 @@ export async function generateImprovementPlan(
 	repoPath: string,
 	rubric: string,
 	score: ScoreResult,
-	mlxConfig: MLXConfig,
+	llmConfig: LLMConfig,
 	plansPath: string,
 	aiTooling: AiTooling = 'generic'
 ): Promise<ImprovementPlan> {
 	const scan = await scanRepo(repoPath);
 	const inventory = await collectRepoInventory(repoPath);
 	const validationCandidates = await collectValidationCommandCandidates(repoPath, inventory);
-	const raw = await callPlanModel(mlxConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, inventory, validationCandidates, aiTooling));
+	const raw = await callPlanModel(llmConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, inventory, validationCandidates, aiTooling));
 	let repairCount = 0;
 	let plan = prepareGeneratedPlan(tryParseImprovementPlan(raw, repoName, score), aiTooling);
 	let validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Response was not valid JSON matching the required plan schema.'];
 	const qualityWarnings = new Set(validationErrors.filter(isQualityValidationError));
 
 	if (!plan || validationErrors.length > 0) {
-		const repaired = await callPlanModel(mlxConfig, buildRepairPrompt(raw, repoName, score, validationErrors, inventory, validationCandidates, aiTooling));
+		const repaired = await callPlanModel(llmConfig, buildRepairPrompt(raw, repoName, score, validationErrors, inventory, validationCandidates, aiTooling));
 		repairCount += 1;
 		plan = prepareGeneratedPlan(tryParseImprovementPlan(repaired, repoName, score), aiTooling);
 		validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Repaired response was not valid JSON matching the required plan schema.'];
 		validationErrors.filter(isQualityValidationError).forEach(error => qualityWarnings.add(error));
 
 		if (plan && validationErrors.length > 0 && validationErrors.every(isQualityValidationError)) {
-			const repairedQuality = await callPlanModel(mlxConfig, buildRepairPrompt(repaired, repoName, score, validationErrors, inventory, validationCandidates, aiTooling));
+			const repairedQuality = await callPlanModel(llmConfig, buildRepairPrompt(repaired, repoName, score, validationErrors, inventory, validationCandidates, aiTooling));
 			repairCount += 1;
 			plan = prepareGeneratedPlan(tryParseImprovementPlan(repairedQuality, repoName, score), aiTooling);
 			validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Quality repair response was not valid JSON matching the required plan schema.'];
@@ -147,12 +147,12 @@ function tryParseImprovementPlan(raw: string, repoName: string, score: ScoreResu
 	}
 }
 
-async function callPlanModel(mlxConfig: MLXConfig, prompt: string): Promise<string> {
+async function callPlanModel(llmConfig: LLMConfig, prompt: string): Promise<string> {
 	try {
-		return await callMLX(mlxConfig, prompt);
+		return await callLLM(llmConfig, prompt);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
-		throw new Error(`MLX_UNREACHABLE: ${msg}`);
+		throw new Error(`LLM_UNREACHABLE: ${msg}`);
 	}
 }
 

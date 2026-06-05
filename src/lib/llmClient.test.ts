@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { callMLX } from './mlxClient';
-import type { MLXConfig } from './types';
+import { callLLM } from './llmClient';
+import type { LLMConfig } from './types';
 
-const config: MLXConfig = { baseUrl: 'http://localhost:8080' };
+const config: LLMConfig = { baseUrl: 'http://localhost:8080' };
 
-describe('callMLX', () => {
+describe('callLLM', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -16,7 +16,7 @@ describe('callMLX', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    await callMLX(config, 'test prompt');
+    await callLLM(config, 'test prompt');
 
     expect(mockFetch).toHaveBeenCalledWith(
       'http://localhost:8080/v1/chat/completions',
@@ -31,7 +31,7 @@ describe('callMLX', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    await callMLX(config, 'my prompt text');
+    await callLLM(config, 'my prompt text');
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.messages).toContainEqual({ role: 'user', content: 'my prompt text' });
@@ -43,7 +43,7 @@ describe('callMLX', () => {
       json: async () => ({ choices: [{ message: { content: '{"score":72}' } }] })
     }));
 
-    const result = await callMLX(config, 'prompt');
+    const result = await callLLM(config, 'prompt');
     expect(result).toBe('{"score":72}');
   });
 
@@ -55,10 +55,9 @@ describe('callMLX', () => {
       })
     }));
 
-    const result = await callMLX(config, 'prompt');
+    const result = await callLLM(config, 'prompt');
     expect(result).toBe('{"score":72}');
   });
-
 
   it('throws when the response status is not ok', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
@@ -67,7 +66,7 @@ describe('callMLX', () => {
       text: async () => 'Service Unavailable'
     }));
 
-    await expect(callMLX(config, 'prompt')).rejects.toThrow('503');
+    await expect(callLLM(config, 'prompt')).rejects.toThrow('503');
   });
 
   it('uses a custom model name when provided', async () => {
@@ -77,7 +76,7 @@ describe('callMLX', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    await callMLX({ baseUrl: 'http://localhost:8080', model: 'gemma-4-27b' }, 'prompt');
+    await callLLM({ baseUrl: 'http://localhost:8080', model: 'gemma-4-27b' }, 'prompt');
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.model).toBe('gemma-4-27b');
@@ -90,12 +89,11 @@ describe('callMLX', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    await callMLX({ baseUrl: 'http://localhost:8080', maxTokens: 4096 }, 'prompt');
+    await callLLM({ baseUrl: 'http://localhost:8080', maxTokens: 4096 }, 'prompt');
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.max_tokens).toBe(4096);
   });
-
 
   it('sends response_format when provided', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
@@ -104,7 +102,7 @@ describe('callMLX', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    await callMLX({
+    await callLLM({
       baseUrl: 'http://localhost:8080',
       responseFormat: {
         type: 'json_schema',

@@ -8,7 +8,10 @@
 	let initialized = $state(false);
 	let manualName = $state('');
 	let manualPath = $state('');
-	let mlxBaseUrl = $state('');
+	let llmBaseUrl = $state('');
+	let llmModel = $state('');
+	let availableModels = $state<string[]>([]);
+	let loadingModels = $state(false);
 	let aiTooling = $state('generic');
 	let useJsonSchema = $state(false);
 	let saving = $state('');
@@ -18,7 +21,8 @@
 	$effect(() => {
 		if (!initialized) {
 			configured = data.configured;
-			mlxBaseUrl = data.settings.mlxBaseUrl;
+			llmBaseUrl = data.settings.llmBaseUrl;
+			llmModel = data.settings.llmModel;
 			aiTooling = data.settings.aiTooling;
 			useJsonSchema = data.settings.useJsonSchema;
 			initialized = true;
@@ -71,14 +75,15 @@
 			const res = await fetch('/api/settings', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ mlxBaseUrl, aiTooling, useJsonSchema })
+				body: JSON.stringify({ llmBaseUrl, llmModel, aiTooling, useJsonSchema })
 			});
 			const body = await res.json().catch(() => null);
 			if (!res.ok) {
 				formError = body?.message ?? 'Could not save LLM settings';
 				return;
 			}
-			mlxBaseUrl = body.mlxBaseUrl;
+			llmBaseUrl = body.llmBaseUrl;
+			llmModel = body.llmModel;
 			aiTooling = body.aiTooling;
 			useJsonSchema = body.useJsonSchema;
 			message = 'Saved LLM settings';
@@ -86,6 +91,31 @@
 			formError = 'Network error while saving LLM settings';
 		} finally {
 			saving = '';
+		}
+	}
+
+	async function loadModels() {
+		loadingModels = true;
+		message = '';
+		formError = '';
+		try {
+			const res = await fetch(`/api/models?baseUrl=${encodeURIComponent(llmBaseUrl)}`);
+			const body = await res.json().catch(() => null);
+			if (!res.ok) {
+				availableModels = [];
+				formError = body?.message ?? 'Could not load models';
+				return;
+			}
+			availableModels = Array.isArray(body?.models) ? body.models : [];
+			if (availableModels.length > 0 && (!llmModel || llmModel === 'local' || !availableModels.includes(llmModel))) {
+				llmModel = availableModels[0];
+			}
+			message = availableModels.length > 0 ? `Loaded ${availableModels.length} model${availableModels.length === 1 ? '' : 's'}` : 'No models reported by server';
+		} catch {
+			availableModels = [];
+			formError = 'Network error while loading models';
+		} finally {
+			loadingModels = false;
 		}
 	}
 </script>
@@ -111,7 +141,22 @@
 		<div class="settings-row">
 			<label>
 				<span>Base URL</span>
-				<input bind:value={mlxBaseUrl} placeholder="http://192.168.4.67:1234" />
+				<input bind:value={llmBaseUrl} placeholder="http://192.168.4.43:8080" />
+			</label>
+			<button disabled={!llmBaseUrl.trim() || loadingModels} onclick={loadModels}>
+				{loadingModels ? 'Loading…' : 'Load models'}
+			</button>
+			<label>
+				<span>Model</span>
+				{#if availableModels.length > 0}
+					<select bind:value={llmModel}>
+						{#each availableModels as model}
+							<option value={model}>{model}</option>
+						{/each}
+					</select>
+				{:else}
+					<input bind:value={llmModel} placeholder="model id" />
+				{/if}
 			</label>
 			<label>
 				<span>AI Tooling</span>
@@ -127,7 +172,7 @@
 				<input type="checkbox" bind:checked={useJsonSchema} />
 				<span>JSON schema</span>
 			</label>
-			<button disabled={!mlxBaseUrl.trim() || saving === 'settings'} onclick={saveSettings}>
+			<button disabled={!llmBaseUrl.trim() || !llmModel.trim() || saving === 'settings'} onclick={saveSettings}>
 				{saving === 'settings' ? 'Saving…' : 'Save'}
 			</button>
 		</div>

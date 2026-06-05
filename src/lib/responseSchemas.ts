@@ -1,12 +1,12 @@
 import { CATEGORY_MAX } from './types';
-import type { CategoryScores, MLXResponseFormat } from './types';
+import type { CategoryScores, LLMResponseFormat } from './types';
 
 const CATEGORY_KEYS = Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[];
 const CATEGORY_PROPERTIES = Object.fromEntries(
 	CATEGORY_KEYS.map(key => [key, { type: 'integer', minimum: 0, maximum: CATEGORY_MAX[key] }])
 );
 
-export const scoreResponseFormat: MLXResponseFormat = {
+export const scoreResponseFormat: LLMResponseFormat = {
 	type: 'json_schema',
 	json_schema: {
 		name: 'repo_score',
@@ -32,7 +32,7 @@ export const scoreResponseFormat: MLXResponseFormat = {
 	}
 };
 
-export const improvementPlanResponseFormat: MLXResponseFormat = {
+export const improvementPlanResponseFormat: LLMResponseFormat = {
 	type: 'json_schema',
 	json_schema: {
 		name: 'improvement_plan',

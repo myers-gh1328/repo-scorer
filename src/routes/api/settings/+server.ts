@@ -8,12 +8,21 @@ export const GET: RequestHandler = async () => {
 
 export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json().catch(() => null);
-	const mlxBaseUrl = typeof body?.mlxBaseUrl === 'string' ? body.mlxBaseUrl : '';
+	const llmBaseUrl = typeof body?.llmBaseUrl === 'string'
+		? body.llmBaseUrl
+		: typeof body?.mlxBaseUrl === 'string'
+			? body.mlxBaseUrl
+			: '';
+	const llmModel = typeof body?.llmModel === 'string'
+		? body.llmModel
+		: typeof body?.mlxModel === 'string'
+			? body.mlxModel
+			: 'local';
 	const aiTooling = typeof body?.aiTooling === 'string' ? body.aiTooling : 'generic';
 	const useJsonSchema = Boolean(body?.useJsonSchema);
 
 	try {
-		return json(await writeAppSettings({ mlxBaseUrl, aiTooling, useJsonSchema }));
+		return json(await writeAppSettings({ llmBaseUrl, llmModel, aiTooling, useJsonSchema }));
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		throw error(400, msg);

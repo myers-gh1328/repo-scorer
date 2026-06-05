@@ -1,35 +1,56 @@
 import { readFile, writeFile } from 'node:fs/promises';
 
-const ENV_PATH = '.env';
-const DEFAULT_MLX_BASE_URL = 'http://localhost:8080';
+const DEFAULT_ENV_PATH = '.env';
+const DEFAULT_LLM_BASE_URL = 'http://localhost:8080';
 export const AI_TOOLING_VALUES = ['generic', 'cursor', 'claude', 'copilot', 'windsurf'] as const;
 export type AiTooling = typeof AI_TOOLING_VALUES[number];
 
 export interface AppSettings {
-	mlxBaseUrl: string;
+	llmBaseUrl: string;
+	llmModel: string;
 	aiTooling: AiTooling;
 	useJsonSchema: boolean;
 }
 
 export async function readAppSettings(): Promise<AppSettings> {
+	const explicitBaseUrl = await readEnvValue('LLM_BASE_URL');
+	const legacyBaseUrl = explicitBaseUrl ? null : await readEnvValue('MLX_BASE_URL');
+	const explicitModel = await readEnvValue('LLM_MODEL');
+	const legacyModel = explicitModel ? null : await readEnvValue('MLX_MODEL');
+	const llmBaseUrl = explicitBaseUrl ?? legacyBaseUrl ?? DEFAULT_LLM_BASE_URL;
+	const llmModel = explicitModel ?? legacyModel ?? 'local';
+
+	if (!explicitBaseUrl && legacyBaseUrl) {
+		await writeEnvValue('LLM_BASE_URL', llmBaseUrl);
+		process.env.LLM_BASE_URL = llmBaseUrl;
+	}
+	if (!explicitModel && legacyModel) {
+		await writeEnvValue('LLM_MODEL', llmModel);
+		process.env.LLM_MODEL = llmModel;
+	}
+
 	return {
-		mlxBaseUrl: await readEnvValue('MLX_BASE_URL') ?? DEFAULT_MLX_BASE_URL,
+		llmBaseUrl,
+		llmModel,
 		aiTooling: normalizeAiTooling(await readEnvValue('AI_TOOLING') ?? 'generic'),
 		useJsonSchema: normalizeBoolean(await readEnvValue('USE_JSON_SCHEMA') ?? 'false')
 	};
 }
 
 export async function writeAppSettings(settings: AppSettings): Promise<AppSettings> {
-	const mlxBaseUrl = normalizeBaseUrl(settings.mlxBaseUrl);
+	const llmBaseUrl = normalizeBaseUrl(settings.llmBaseUrl);
+	const llmModel = normalizeModel(settings.llmModel);
 	const aiTooling = normalizeAiTooling(settings.aiTooling);
 	const useJsonSchema = Boolean(settings.useJsonSchema);
-	await writeEnvValue('MLX_BASE_URL', mlxBaseUrl);
+	await writeEnvValue('LLM_BASE_URL', llmBaseUrl);
+	await writeEnvValue('LLM_MODEL', llmModel);
 	await writeEnvValue('AI_TOOLING', aiTooling);
 	await writeEnvValue('USE_JSON_SCHEMA', String(useJsonSchema));
-	process.env.MLX_BASE_URL = mlxBaseUrl;
+	process.env.LLM_BASE_URL = llmBaseUrl;
+	process.env.LLM_MODEL = llmModel;
 	process.env.AI_TOOLING = aiTooling;
 	process.env.USE_JSON_SCHEMA = String(useJsonSchema);
-	return { mlxBaseUrl, aiTooling, useJsonSchema };
+	return { llmBaseUrl, llmModel, aiTooling, useJsonSchema };
 }
 
 export function normalizeBaseUrl(value: string): string {
@@ -53,6 +74,10 @@ export function normalizeAiTooling(value: string): AiTooling {
 	return AI_TOOLING_VALUES.includes(value as AiTooling) ? value as AiTooling : 'generic';
 }
 
+export function normalizeModel(value: string): string {
+	return value.trim() || 'local';
+}
+
 function normalizeBoolean(value: string): boolean {
 	return value.toLowerCase() === 'true' || value === '1' || value.toLowerCase() === 'yes';
 }
@@ -74,15 +99,19 @@ async function writeEnvValue(key: string, value: string): Promise<void> {
 	} else {
 		lines.push(nextLine);
 	}
-	await writeFile(ENV_PATH, `${lines.join('\n')}\n`);
+	await writeFile(envPath(), `${lines.join('\n')}\n`);
 }
 
 async function readEnvLines(): Promise<string[]> {
 	try {
-		return (await readFile(ENV_PATH, 'utf-8')).split(/\r?\n/).filter((line, index, lines) => {
+		return (await readFile(envPath(), 'utf-8')).split(/\r?\n/).filter((line, index, lines) => {
 			return line.length > 0 || index < lines.length - 1;
 		});
 	} catch {
 		return [];
 	}
+}
+
+function envPath(): string {
+	return process.env.REPO_SCORER_ENV_PATH ?? DEFAULT_ENV_PATH;
 }

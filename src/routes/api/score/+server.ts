@@ -43,18 +43,19 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(500, 'rubric.md not found in project root');
   }
 
-  const { mlxBaseUrl, useJsonSchema } = await readAppSettings();
+  const { llmBaseUrl, llmModel, useJsonSchema } = await readAppSettings();
 
   try {
     const result = await scoreRepo(name, path, rubric, {
-      baseUrl: mlxBaseUrl,
+      baseUrl: llmBaseUrl,
+      model: llmModel,
       responseFormat: useJsonSchema ? scoreResponseFormat : undefined
     }, SCORES_PATH);
     return json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.startsWith('MLX_UNREACHABLE')) {
-      throw error(503, `MLX server unreachable: ${msg.replace(/^MLX_UNREACHABLE:?\s*/, '')}`);
+    if (msg.startsWith('LLM_UNREACHABLE')) {
+      throw error(503, `LLM server unreachable: ${msg.replace(/^LLM_UNREACHABLE:?\s*/, '')}`);
     }
     if (msg === 'PARSE_FAILED') {
       throw error(500, 'Scoring failed — model response could not be parsed');
