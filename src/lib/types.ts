@@ -1,6 +1,9 @@
 export interface RepoConfig {
   name: string;
   path: string;
+  visibility?: 'private' | 'public';
+  openSource?: boolean;
+  allowPlanExport?: boolean;
 }
 
 export interface CategoryScores {
