@@ -92,7 +92,7 @@
         return;
       }
       exportedAt = body.exportedAt ?? new Date().toISOString();
-      exportMessage = `Exported to ${body.planPath} and updated ${body.agentsPath}`;
+      exportMessage = `Exported to ${body.exported?.planPath ?? body.planPath} and updated ${body.exported?.agentsPath ?? body.agentsPath}`;
     } catch {
       planError = 'Network error — could not reach server';
     } finally {
@@ -288,7 +288,7 @@
             {planning ? 'Generating…' : 'Generate Plan'}
           </button>
         </div>
-        <p class="muted">Generate a plan after scoring to create LLM-ready remediation tasks and write them into the target repo.</p>
+        <p class="muted">Generate a plan after scoring to create LLM-ready remediation tasks stored in repo-scorer.</p>
       </div>
     {/if}
   {/if}

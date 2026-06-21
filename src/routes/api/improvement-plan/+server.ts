@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { readAppSettings } from '$lib/server/appSettings';
 import { readRepoConfig } from '$lib/server/repoConfig';
 import {
+	assertImprovementPlanExportAllowed,
 	exportImprovementPlanToRepo,
 	generateImprovementPlan,
 	markImprovementPlanExported
@@ -26,7 +27,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const configs: RepoConfig[] = await readRepoConfig();
-	if (!configs.some(repo => repo.name === name && repo.path === path)) {
+	const repo = configs.find(repo => repo.name === name && repo.path === path);
+	if (!repo) {
 		throw error(400, `Repo "${name}" not found in repos.config.json`);
 	}
 	if (!existsSync(path)) {
@@ -43,6 +45,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		const plan = plans[name];
 		if (!plan) {
 			throw error(400, 'Generate an improvement plan before exporting it');
+		}
+		try {
+			assertImprovementPlanExportAllowed(repo);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			if (msg === 'PLAN_EXPORT_BLOCKED_PUBLIC_REPO') {
+				throw error(403, 'Export is disabled for public/open-source repos. Copy the plan manually if you decide a repo-local change belongs there.');
+			}
+			throw error(403, 'Export is disabled for this repo');
 		}
 		const exported = await exportImprovementPlanToRepo(path, plan);
 		return json({ ...(await markImprovementPlanExported(PLANS_PATH, name, exported)), exported });
@@ -78,8 +89,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			maxTokens: 4096,
 			responseFormat: useJsonSchema ? improvementPlanResponseFormat : undefined
 		}, PLANS_PATH, aiTooling);
-		const exported = await exportImprovementPlanToRepo(path, plan);
-		return json({ ...(await markImprovementPlanExported(PLANS_PATH, name, exported)), exported });
+		return json(plan);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		if (msg.startsWith('LLM_UNREACHABLE')) {

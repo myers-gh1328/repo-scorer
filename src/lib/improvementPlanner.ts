@@ -11,6 +11,7 @@ import type {
 	ImprovementPlansStore,
 	ImprovementTask,
 	LLMConfig,
+	RepoConfig,
 	ScoreResult
 } from './types';
 
@@ -25,6 +26,15 @@ const AGENTS_POINTER = `## Agent Improvement Plan
 
 This repository has a generated agent-facing improvement plan at \`${EXPORTED_PLAN_PATH}\`. Review it before making repo maturity improvements.
 `;
+
+export function assertImprovementPlanExportAllowed(repo: RepoConfig): void {
+	if (repo.openSource || repo.visibility === 'public') {
+		throw new Error('PLAN_EXPORT_BLOCKED_PUBLIC_REPO');
+	}
+	if (repo.allowPlanExport === false) {
+		throw new Error('PLAN_EXPORT_DISABLED');
+	}
+}
 
 export async function generateImprovementPlan(
 	repoName: string,

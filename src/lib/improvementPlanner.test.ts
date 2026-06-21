@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtemp } from 'node:fs/promises';
 import {
+	assertImprovementPlanExportAllowed,
 	exportImprovementPlanToRepo,
 	generateImprovementPlan,
 	markImprovementPlanExported,
@@ -16,6 +17,33 @@ vi.mock('./llmClient', () => ({ callLLM: vi.fn() }));
 
 beforeEach(() => {
 	vi.clearAllMocks();
+});
+
+describe('assertImprovementPlanExportAllowed', () => {
+	it('blocks exports to public or open-source repos', () => {
+		expect(() => assertImprovementPlanExportAllowed({
+			name: 'LastFMUpload',
+			path: '/repos/LastFMUpload',
+			visibility: 'public',
+			openSource: true
+		})).toThrow('PLAN_EXPORT_BLOCKED_PUBLIC_REPO');
+	});
+
+	it('allows private repos unless explicitly disabled', () => {
+		expect(() => assertImprovementPlanExportAllowed({
+			name: 'repo-scorer',
+			path: '/repos/repo-scorer',
+			visibility: 'private'
+		})).not.toThrow();
+	});
+
+	it('blocks repos with explicit export opt-out', () => {
+		expect(() => assertImprovementPlanExportAllowed({
+			name: 'internal-tool',
+			path: '/repos/internal-tool',
+			allowPlanExport: false
+		})).toThrow('PLAN_EXPORT_DISABLED');
+	});
 });
 
 const score: ScoreResult = {
