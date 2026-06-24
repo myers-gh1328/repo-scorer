@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { DEFAULT_OPENAI_MODEL_ID, requireOpenAIModelId } from '$lib/modelCatalog';
 
 const DEFAULT_ENV_PATH = '.env';
 const DEFAULT_LLM_BASE_URL = 'http://localhost:8080';
@@ -18,7 +19,7 @@ export async function readAppSettings(): Promise<AppSettings> {
 	const explicitModel = await readEnvValue('LLM_MODEL');
 	const legacyModel = explicitModel ? null : await readEnvValue('MLX_MODEL');
 	const llmBaseUrl = explicitBaseUrl ?? legacyBaseUrl ?? DEFAULT_LLM_BASE_URL;
-	const llmModel = explicitModel ?? legacyModel ?? 'local';
+	const llmModel = normalizeModel(explicitModel ?? legacyModel ?? DEFAULT_OPENAI_MODEL_ID);
 
 	if (!explicitBaseUrl && legacyBaseUrl) {
 		await writeEnvValue('LLM_BASE_URL', llmBaseUrl);
@@ -75,7 +76,7 @@ export function normalizeAiTooling(value: string): AiTooling {
 }
 
 export function normalizeModel(value: string): string {
-	return value.trim() || 'local';
+	return requireOpenAIModelId(value.trim() || DEFAULT_OPENAI_MODEL_ID);
 }
 
 function normalizeBoolean(value: string): boolean {

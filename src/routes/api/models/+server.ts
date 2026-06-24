@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
 import { error, json } from '@sveltejs/kit';
 import { normalizeBaseUrl, readAppSettings } from '$lib/server/appSettings';
+import { isOpenAIModelId } from '$lib/modelCatalog';
 
 interface ModelListResponse {
 	data?: Array<{ id?: unknown }>;
@@ -33,7 +34,7 @@ export const GET: RequestHandler = async ({ url, fetch }) => {
 	const body = await response.json().catch(() => null) as ModelListResponse | null;
 	const models = body?.data
 		?.map(model => model.id)
-		.filter((id): id is string => typeof id === 'string' && id.trim().length > 0) ?? [];
+		.filter((id): id is string => typeof id === 'string' && isOpenAIModelId(id)) ?? [];
 
 	return json({ models });
 };

@@ -69,17 +69,41 @@ describe('callLLM', () => {
     await expect(callLLM(config, 'prompt')).rejects.toThrow('503');
   });
 
-  it('uses a custom model name when provided', async () => {
+  it('uses an approved model name when provided', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ choices: [{ message: { content: '{}' } }] })
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    await callLLM({ baseUrl: 'http://localhost:8080', model: 'gemma-4-27b' }, 'prompt');
+    await callLLM({ baseUrl: 'http://localhost:8080', model: 'gpt-5.4-nano' }, 'prompt');
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.model).toBe('gemma-4-27b');
+    expect(body.model).toBe('gpt-5.4-nano');
+  });
+
+  it('uses the default approved OpenAI model when omitted', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: '{}' } }] })
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    await callLLM({ baseUrl: 'http://localhost:8080' }, 'prompt');
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.model).toBe('gpt-5.4-mini');
+  });
+
+  it('rejects local and arbitrary model names before sending a request', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    await expect(callLLM({ baseUrl: 'http://localhost:8080', model: 'local' }, 'prompt'))
+      .rejects.toThrow('Model must be one of');
+    await expect(callLLM({ baseUrl: 'http://localhost:8080', model: 'gemma-4-27b' }, 'prompt'))
+      .rejects.toThrow('Model must be one of');
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('uses a custom max token limit when provided', async () => {
@@ -89,7 +113,7 @@ describe('callLLM', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    await callLLM({ baseUrl: 'http://localhost:8080', maxTokens: 4096 }, 'prompt');
+    await callLLM({ baseUrl: 'http://localhost:8080', model: 'gpt-5.4-mini', maxTokens: 4096 }, 'prompt');
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.max_tokens).toBe(4096);
