@@ -23,6 +23,7 @@
 			configured = data.configured;
 			llmBaseUrl = data.settings.llmBaseUrl;
 			llmModel = data.settings.llmModel;
+			availableModels = [...data.models];
 			aiTooling = data.settings.aiTooling;
 			useJsonSchema = data.settings.useJsonSchema;
 			initialized = true;
@@ -102,17 +103,15 @@
 			const res = await fetch(`/api/models?baseUrl=${encodeURIComponent(llmBaseUrl)}`);
 			const body = await res.json().catch(() => null);
 			if (!res.ok) {
-				availableModels = [];
 				formError = body?.message ?? 'Could not load models';
 				return;
 			}
-			availableModels = Array.isArray(body?.models) ? body.models : [];
-			if (availableModels.length > 0 && (!llmModel || llmModel === 'local' || !availableModels.includes(llmModel))) {
+			availableModels = Array.isArray(body?.models) && body.models.length > 0 ? body.models : [...data.models];
+			if (availableModels.length > 0 && (!llmModel || !availableModels.includes(llmModel))) {
 				llmModel = availableModels[0];
 			}
 			message = availableModels.length > 0 ? `Loaded ${availableModels.length} model${availableModels.length === 1 ? '' : 's'}` : 'No models reported by server';
 		} catch {
-			availableModels = [];
 			formError = 'Network error while loading models';
 		} finally {
 			loadingModels = false;
@@ -148,15 +147,11 @@
 			</button>
 			<label>
 				<span>Model</span>
-				{#if availableModels.length > 0}
-					<select bind:value={llmModel}>
-						{#each availableModels as model}
-							<option value={model}>{model}</option>
-						{/each}
-					</select>
-				{:else}
-					<input bind:value={llmModel} placeholder="model id" />
-				{/if}
+				<select bind:value={llmModel}>
+					{#each availableModels as model}
+						<option value={model}>{model}</option>
+					{/each}
+				</select>
 			</label>
 			<label>
 				<span>AI Tooling</span>

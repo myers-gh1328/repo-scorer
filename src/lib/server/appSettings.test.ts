@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readAppSettings } from './appSettings';
+import { readAppSettings, writeAppSettings } from './appSettings';
 
 let dir: string;
 let envFile: string;
@@ -21,18 +21,18 @@ afterEach(async () => {
 });
 
 describe('readAppSettings', () => {
-	it('migrates legacy MLX settings to neutral LLM settings on read', async () => {
+	it('migrates approved legacy MLX settings to neutral LLM settings on read', async () => {
 		await writeFile(envFile, [
 			'MLX_BASE_URL=http://192.168.4.43:8080',
-			'MLX_MODEL=mlx-community/gemma-4-e4b-it-8bit'
+			'MLX_MODEL=gpt-5.4-nano'
 		].join('\n'));
 
 		const settings = await readAppSettings();
 
 		expect(settings.llmBaseUrl).toBe('http://192.168.4.43:8080');
-		expect(settings.llmModel).toBe('mlx-community/gemma-4-e4b-it-8bit');
+		expect(settings.llmModel).toBe('gpt-5.4-nano');
 		await expect(readFile(envFile, 'utf-8')).resolves.toContain('LLM_BASE_URL=http://192.168.4.43:8080');
-		await expect(readFile(envFile, 'utf-8')).resolves.toContain('LLM_MODEL=mlx-community/gemma-4-e4b-it-8bit');
+		await expect(readFile(envFile, 'utf-8')).resolves.toContain('LLM_MODEL=gpt-5.4-nano');
 	});
 
 	it('keeps explicit neutral settings when legacy settings also exist', async () => {
@@ -40,12 +40,36 @@ describe('readAppSettings', () => {
 			'MLX_BASE_URL=http://legacy.example',
 			'MLX_MODEL=legacy-model',
 			'LLM_BASE_URL=http://new.example',
-			'LLM_MODEL=new-model'
+			'LLM_MODEL=gpt-5.5'
 		].join('\n'));
 
 		const settings = await readAppSettings();
 
 		expect(settings.llmBaseUrl).toBe('http://new.example');
-		expect(settings.llmModel).toBe('new-model');
+		expect(settings.llmModel).toBe('gpt-5.5');
+	});
+
+	it('defaults to an approved OpenAI model when no model is configured', async () => {
+		await writeFile(envFile, 'LLM_BASE_URL=http://localhost:8080\n');
+
+		const settings = await readAppSettings();
+
+		expect(settings.llmModel).toBe('gpt-5.4-mini');
+	});
+
+	it('rejects local and arbitrary model values', async () => {
+		await expect(writeAppSettings({
+			llmBaseUrl: 'http://localhost:8080',
+			llmModel: 'local',
+			aiTooling: 'generic',
+			useJsonSchema: false
+		})).rejects.toThrow('Model must be one of');
+
+		await expect(writeAppSettings({
+			llmBaseUrl: 'http://localhost:8080',
+			llmModel: 'mlx-community/gemma-4-e4b-it-8bit',
+			aiTooling: 'generic',
+			useJsonSchema: false
+		})).rejects.toThrow('Model must be one of');
 	});
 });
