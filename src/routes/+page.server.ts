@@ -2,7 +2,8 @@ import type { PageServerLoad } from './$types';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { readRepoConfig } from '$lib/server/repoConfig';
-import type { RepoConfig, ScoresStore } from '$lib/types';
+import { readRubricDefinition } from '$lib/rubricSchema';
+import type { RepoConfig, ScoreHistoryStore, ScoresStore } from '$lib/types';
 
 export const load: PageServerLoad = async () => {
   const repos: RepoConfig[] = await readRepoConfig();
@@ -16,5 +17,23 @@ export const load: PageServerLoad = async () => {
     }
   }
 
-  return { repos, scores };
+  let scoreHistory: ScoreHistoryStore = {};
+  if (existsSync('score-history.json')) {
+    try {
+      scoreHistory = JSON.parse(await readFile('score-history.json', 'utf-8'));
+    } catch {
+      // corrupt score-history.json - ignore
+    }
+  }
+
+  const rubricDefinition = await readRubricDefinition();
+  const rubric = {
+    version: rubricDefinition.version,
+    totalScore: rubricDefinition.totalScore,
+    categories: rubricDefinition.categories,
+    bands: rubricDefinition.bands,
+    categoryLabels: rubricDefinition.categoryLabels
+  };
+
+  return { repos, scores, scoreHistory, rubric };
 };

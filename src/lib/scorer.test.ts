@@ -7,6 +7,8 @@ vi.mock('./llmClient', () => ({ callLLM: vi.fn() }));
 
 import { parseScoreResult, scoreRepo } from './scorer';
 import { callLLM } from './llmClient';
+import { bandForScore } from './types';
+import type { RubricDefinition } from './rubricSchema';
 
 const mockResult = {
   score: 72,
@@ -21,6 +23,25 @@ const mockResult = {
   qualityFlags: ['Good AGENTS.md'],
   riskFlags: ['No CI'],
   recommendations: ['Add CI workflow']
+};
+
+const tinyRubric: RubricDefinition = {
+  version: 'test',
+  totalScore: 10,
+  categories: [
+    { key: 'alpha', label: 'Alpha', weight: 6, scannerSection: 'Agent guidance', evaluate: 'Alpha quality' },
+    { key: 'beta', label: 'Beta', weight: 4, evaluate: 'Beta quality' }
+  ],
+  bands: [
+    { label: 'Low', min: 0, max: 4 },
+    { label: 'High', min: 5, max: 10 }
+  ],
+  totalWeight: 10,
+  categoryMax: { alpha: 6, beta: 4 },
+  categoryLabels: { alpha: 'Alpha', beta: 'Beta' },
+  bandForScore(score: number) {
+    return score >= 5 ? 'High' : 'Low';
+  }
 };
 
 describe('scoreRepo', () => {
@@ -52,6 +73,22 @@ describe('scoreRepo', () => {
     expect(stored.myrepo.rawScore).toBe(72);
   });
 
+  it('appends compact score history when a history path is provided', async () => {
+    const historyPath = join(tmpDir, 'score-history.json');
+
+    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath, undefined, historyPath);
+
+    const stored = JSON.parse(await readFile(historyPath, 'utf-8'));
+    expect(stored.myrepo.compact).toHaveLength(1);
+    expect(stored.myrepo.compact[0]).toMatchObject({
+      finalScore: 63,
+      finalBand: 'Operational',
+      appliedCapCount: 3
+    });
+    expect(stored.myrepo.full).toHaveLength(1);
+    expect(stored.myrepo.full[0].score).toBe(63);
+  });
+
   it('preserves existing scores for other repos', async () => {
     await writeFile(scoresPath, JSON.stringify({ otherapp: { score: 50 } }));
 
@@ -60,6 +97,17 @@ describe('scoreRepo', () => {
     const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
     expect(stored.otherapp.score).toBe(50);
     expect(stored.myrepo.score).toBe(63);
+  });
+
+  it('preserves both results when different repos persist concurrently', async () => {
+    await Promise.all([
+      scoreRepo('repo-a', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath),
+      scoreRepo('repo-b', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath)
+    ]);
+
+    const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
+    expect(stored['repo-a'].score).toBe(63);
+    expect(stored['repo-b'].score).toBe(63);
   });
 
   it('throws LLM_UNREACHABLE when the LLM call fails', async () => {
@@ -144,6 +192,125 @@ describe('scoreRepo', () => {
     expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('Convert the text below into one valid JSON object');
     expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('not valid json');
   });
+
+  it('scores each rubric category separately and aggregates deterministically', async () => {
+    await writeFile(join(repoDir, 'AGENTS.md'), '# Agent Guide');
+    vi.mocked(callLLM)
+      .mockResolvedValueOnce(JSON.stringify({
+        score: 5,
+        evidence: ['AGENTS.md'],
+        gaps: ['Needs sharper validation guidance']
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        score: 3,
+        evidence: ['.github/workflows/ci.yml'],
+        gaps: []
+      }));
+
+    const result = await scoreRepo(
+      'myrepo',
+      repoDir,
+      'rubric',
+      { baseUrl: 'http://localhost:8080' },
+      scoresPath,
+      tinyRubric
+    );
+
+    expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(callLLM).mock.calls[0][1]).toContain('Alpha quality');
+    expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('Beta quality');
+    expect(result.categories).toEqual({ alpha: 5, beta: 3 });
+    expect(result.score).toBe(8);
+    expect(result.band).toBe('High');
+    expect(result.categoryRationales?.alpha?.gaps).toEqual(['Needs sharper validation guidance']);
+  });
+
+  it('uses schema response formatting for per-category scoring when enabled', async () => {
+    vi.mocked(callLLM)
+      .mockResolvedValueOnce(JSON.stringify({ score: 5, evidence: [], gaps: [] }))
+      .mockResolvedValueOnce(JSON.stringify({ score: 3, evidence: [], gaps: [] }));
+
+    await scoreRepo(
+      'myrepo',
+      repoDir,
+      'rubric',
+      {
+        baseUrl: 'http://localhost:8080',
+        responseFormat: {
+          type: 'json_schema',
+          json_schema: { name: 'full_score', schema: {} }
+        }
+      },
+      scoresPath,
+      tinyRubric
+    );
+
+    expect(vi.mocked(callLLM).mock.calls[0][0].responseFormat?.json_schema.name).toBe('category_score_alpha');
+    expect(vi.mocked(callLLM).mock.calls[1][0].responseFormat?.json_schema.name).toBe('category_score_beta');
+  });
+
+  it('prioritizes category-relevant evidence before unrelated files', async () => {
+    await writeFile(join(repoDir, 'AGENTS.md'), '# Agent Guide');
+    await writeFile(join(repoDir, 'README.md'), '# Readme');
+    vi.mocked(callLLM)
+      .mockResolvedValueOnce(JSON.stringify({ score: 5, evidence: [], gaps: [] }))
+      .mockResolvedValueOnce(JSON.stringify({ score: 3, evidence: [], gaps: [] }));
+
+    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath, tinyRubric);
+
+    const firstPrompt = vi.mocked(callLLM).mock.calls[0][1];
+    expect(firstPrompt.indexOf('AGENTS.md')).toBeLessThan(firstPrompt.indexOf('README.md'));
+  });
+
+  it('applies consistency checks after evidence caps and persists staged scores', async () => {
+    const matureRubric: RubricDefinition = {
+      version: 'test-mature',
+      totalScore: 100,
+      categories: [
+        { key: 'tool_manifests_mcp', label: 'Tools', weight: 100, evaluate: 'Tools' }
+      ],
+      bands: [
+        { label: 'Managed', min: 0, max: 89 },
+        { label: 'Mature', min: 90, max: 100 }
+      ],
+      caps: [],
+      bandConstraints: [
+        {
+          band: 'Mature',
+          check: 'has_tool_access_governance',
+          category: 'tool_manifests_mcp',
+          severity: 'high',
+          requirement: 'Tool access is governed',
+          maxBandOnFailure: 'Managed'
+        }
+      ],
+      totalWeight: 100,
+      categoryMax: { tool_manifests_mcp: 100 },
+      categoryLabels: { tool_manifests_mcp: 'Tools' },
+      bandForScore: score => score >= 90 ? 'Mature' : 'Managed'
+    };
+    vi.mocked(callLLM).mockResolvedValue(JSON.stringify({
+      score: 94,
+      evidence: ['Strong tool docs'],
+      gaps: ['No MCP manifest found']
+    }));
+
+    const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath, matureRubric);
+    const stored = JSON.parse(await readFile(scoresPath, 'utf-8')).myrepo;
+
+    expect(result.modelScore).toBe(94);
+    expect(result.cappedScore).toBe(94);
+    expect(result.finalScore).toBe(89);
+    expect(result.score).toBe(89);
+    expect(result.finalBand).toBe('Managed');
+    expect(result.band).toBe('Managed');
+    expect(result.consistencyChecks).toContainEqual(expect.objectContaining({
+      id: 'has_tool_access_governance',
+      passed: false
+    }));
+    expect(stored.rubricVersion).toBe('test-mature');
+    expect(stored.finalScore).toBe(89);
+  });
 });
 
 describe('parseScoreResult', () => {
@@ -159,6 +326,41 @@ describe('parseScoreResult', () => {
   it('extracts the first complete JSON object from surrounding text', () => {
     const raw = `Here is the score:\n${JSON.stringify(mockResult)}\nDone.`;
     expect(parseScoreResult(raw).primaryLanguage).toBe('TypeScript');
+  });
+
+  it('normalizes structured gap objects without using severity for score or band', () => {
+    const raw = JSON.stringify({
+      ...mockResult,
+      categories: {
+        ...mockResult.categories,
+        tool_manifests_mcp: 9
+      },
+      categoryRationales: {
+        tool_manifests_mcp: {
+          score: 9,
+          evidence: ['tool docs found'],
+          gaps: [
+            {
+              description: 'No MCP manifest found',
+              severity: 'blocking',
+              evidenceNeeded: ['mcp.json']
+            }
+          ]
+        }
+      }
+    });
+
+    const result = parseScoreResult(raw);
+
+    expect(result.categoryRationales?.tool_manifests_mcp?.gaps).toEqual(['No MCP manifest found']);
+    expect(result.categoryRationales?.tool_manifests_mcp?.structuredGaps).toEqual([
+      {
+        description: 'No MCP manifest found',
+        severity: 'blocking',
+        evidenceNeeded: ['mcp.json']
+      }
+    ]);
+    expect(result.band).toBe(bandForScore(result.score));
   });
 
   it('normalizes numeric strings and recomputes score and band from categories', () => {

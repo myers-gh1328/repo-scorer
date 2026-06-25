@@ -13,7 +13,20 @@ const CATEGORY_RATIONALE_PROPERTIES = Object.fromEntries(
 		properties: {
 			score: { type: 'integer', minimum: 0, maximum: CATEGORY_MAX[key] },
 			evidence: { type: 'array', items: { type: 'string' } },
-			gaps: { type: 'array', items: { type: 'string' } }
+			gaps: { type: 'array', items: { type: 'string' } },
+			structuredGaps: {
+				type: 'array',
+				items: {
+					type: 'object',
+					additionalProperties: false,
+					required: ['description'],
+					properties: {
+						description: { type: 'string' },
+						severity: { type: 'string', enum: ['blocking', 'high', 'medium', 'low'] },
+						evidenceNeeded: { type: 'array', items: { type: 'string' } }
+					}
+				}
+			}
 		}
 	}])
 );
