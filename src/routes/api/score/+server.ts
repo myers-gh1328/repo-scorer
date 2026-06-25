@@ -6,10 +6,14 @@ import { readAppSettings } from '$lib/server/appSettings';
 import { readRepoConfig } from '$lib/server/repoConfig';
 import { scoreRepo } from '$lib/scorer';
 import { scoreResponseFormat } from '$lib/responseSchemas';
+import { readRubricDefinition } from '$lib/rubricSchema';
+import { beginScoring, finishScoring } from '$lib/server/scoreConcurrency';
 import type { RepoConfig } from '$lib/types';
 
 const SCORES_PATH = 'scores.json';
+const SCORE_HISTORY_PATH = 'score-history.json';
 const RUBRIC_PATH = 'rubric.md';
+const RUBRIC_SCHEMA_PATH = 'rubric.schema.json';
 
 export const POST: RequestHandler = async ({ request }) => {
   let name: string;
@@ -36,25 +40,29 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(400, `Repo path not found: ${path}`);
   }
 
-  let rubric: string;
-  try {
-    rubric = await readFile(RUBRIC_PATH, 'utf-8');
-  } catch {
-    throw error(500, 'rubric.md not found in project root');
+  if (!beginScoring(name)) {
+    throw error(409, `Repo "${name}" is already being scored`);
   }
 
-  const { llmBaseUrl, llmModel, useJsonSchema } = await readAppSettings();
-
   try {
+    let rubric: string;
+    rubric = await readFile(RUBRIC_PATH, 'utf-8');
+
+    const { llmBaseUrl, llmModel, useJsonSchema } = await readAppSettings();
+
+    const rubricDefinition = await readRubricDefinition(RUBRIC_SCHEMA_PATH);
     const result = await scoreRepo(name, path, rubric, {
       baseUrl: llmBaseUrl,
       model: llmModel,
       maxTokens: 4096,
       responseFormat: useJsonSchema ? scoreResponseFormat : undefined
-    }, SCORES_PATH);
+    }, SCORES_PATH, rubricDefinition, SCORE_HISTORY_PATH);
     return json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('ENOENT') && msg.includes(RUBRIC_PATH)) {
+      throw error(500, 'rubric.md not found in project root');
+    }
     if (msg.startsWith('LLM_UNREACHABLE')) {
       throw error(503, `LLM server unreachable: ${msg.replace(/^LLM_UNREACHABLE:?\s*/, '')}`);
     }
@@ -62,5 +70,7 @@ export const POST: RequestHandler = async ({ request }) => {
       throw error(500, 'Scoring failed — model response could not be parsed');
     }
     throw error(500, `Scoring failed: ${msg}`);
+  } finally {
+    finishScoring(name);
   }
 };

@@ -7,6 +7,7 @@ export interface RepoConfig {
 }
 
 export interface CategoryScores {
+  [key: string]: number;
   persistent_guidance: number;
   scoped_rules: number;
   skills: number;
@@ -21,10 +22,17 @@ export interface CategoryScores {
   onboarding_discoverability: number;
 }
 
+export interface StructuredGap {
+  description: string;
+  severity?: 'blocking' | 'high' | 'medium' | 'low';
+  evidenceNeeded?: string[];
+}
+
 export interface CategoryRationale {
   score: number;
   evidence: string[];
   gaps: string[];
+  structuredGaps?: StructuredGap[];
 }
 
 export type CategoryRationales = Partial<Record<keyof CategoryScores, CategoryRationale>>;
@@ -35,6 +43,25 @@ export interface AppliedScoreCap {
   cappedScore: number;
   maxScore: number;
   reason: string;
+}
+
+export type ConsistencySeverity = 'blocking' | 'high' | 'medium' | 'low';
+
+export interface ConsistencyCheckImpact {
+  bandCeiling?: HealthBand;
+  scoreCeiling?: number;
+  warningOnly?: boolean;
+}
+
+export interface ConsistencyCheckResult {
+  id: string;
+  requirement: string;
+  severity: ConsistencySeverity;
+  passed: boolean;
+  categories: string[];
+  evidence: string[];
+  reason: string;
+  impact: ConsistencyCheckImpact;
 }
 
 export const CATEGORY_MAX: CategoryScores = {
@@ -67,10 +94,18 @@ export const CATEGORY_LABELS: Record<keyof CategoryScores, string> = {
   onboarding_discoverability: 'Onboarding & Discoverability'
 };
 
-export type HealthBand = 'Fragile' | 'Emerging' | 'Operational' | 'Managed' | 'Mature';
+export type HealthBand = string;
 
 export interface ScoreResult {
+  resultVersion?: number;
+  rubricVersion?: string;
   scoredAt: string;
+  modelScore?: number;
+  cappedScore?: number;
+  finalScore?: number;
+  modelBand?: HealthBand;
+  cappedBand?: HealthBand;
+  finalBand?: HealthBand;
   score: number;
   rawScore?: number;
   band: HealthBand;
@@ -79,6 +114,7 @@ export interface ScoreResult {
   categories: CategoryScores;
   categoryRationales?: CategoryRationales;
   appliedCaps?: AppliedScoreCap[];
+  consistencyChecks?: ConsistencyCheckResult[];
   qualityFlags: string[];
   riskFlags: string[];
   recommendations: string[];
@@ -86,6 +122,28 @@ export interface ScoreResult {
 
 export interface ScoresStore {
   [repoName: string]: ScoreResult;
+}
+
+export interface ScoreHistoryEntry {
+  scoredAt: string;
+  rubricVersion?: string;
+  resultVersion?: number;
+  modelScore?: number;
+  cappedScore?: number;
+  finalScore: number;
+  finalBand: HealthBand;
+  categories: Record<string, number>;
+  appliedCapCount: number;
+  failedConsistencyCheckCount: number;
+}
+
+export interface RepoScoreHistory {
+  compact: ScoreHistoryEntry[];
+  full: ScoreResult[];
+}
+
+export interface ScoreHistoryStore {
+  [repoName: string]: RepoScoreHistory;
 }
 
 export interface ImprovementTask {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyEvidenceCaps } from './scoreCaps';
 import type { CategoryScores, ScoreResult } from './types';
 import type { EvidenceInventory } from './scanner';
+import type { RubricDefinition } from './rubricSchema';
 
 const categories: CategoryScores = {
   persistent_guidance: 15,
@@ -41,12 +42,13 @@ const evidence: EvidenceInventory = {
   hasExternalUnversionedHookReference: false
 };
 
-function result(overrides: Partial<CategoryScores> = {}): ScoreResult {
-  const nextCategories = { ...categories, ...overrides };
+function result(overrides: Record<string, number> = {}): ScoreResult {
+  const nextCategories: CategoryScores = { ...categories, ...overrides };
+  const total = Object.values(nextCategories).reduce((sum, value) => sum + value, 0);
   return {
     scoredAt: '',
-    score: Object.values(nextCategories).reduce((sum, value) => sum + value, 0),
-    rawScore: Object.values(nextCategories).reduce((sum, value) => sum + value, 0),
+    score: total,
+    rawScore: total,
     band: 'Mature',
     primaryLanguage: 'TypeScript',
     rawCategories: { ...nextCategories },
@@ -120,5 +122,52 @@ describe('applyEvidenceCaps', () => {
 
     expect(adjusted.score).toBe(sum);
     expect(adjusted.band).toBe('Managed');
+  });
+
+  it('applies cap rules from the rubric schema when provided', () => {
+    const rubric: RubricDefinition = {
+      version: 'test',
+      totalScore: 10,
+      categories: [
+        { key: 'custom_category', label: 'Custom', weight: 10, evaluate: 'Custom category' }
+      ],
+      bands: [
+        { label: 'Low', min: 0, max: 4 },
+        { label: 'High', min: 5, max: 10 }
+      ],
+      caps: [
+        {
+          category: 'custom_category',
+          maxScore: 4,
+          reason: 'Custom evidence is missing',
+          when: { evidenceField: 'hasRootGuidance', equals: false }
+        }
+      ],
+      totalWeight: 10,
+      categoryMax: { custom_category: 10 },
+      categoryLabels: { custom_category: 'Custom' },
+      bandForScore: score => score >= 5 ? 'High' : 'Low'
+    };
+
+    const adjusted = applyEvidenceCaps({
+      scoredAt: '',
+      score: 10,
+      rawScore: 10,
+      band: 'High',
+      primaryLanguage: 'Unknown',
+      rawCategories: { custom_category: 10 } as unknown as CategoryScores,
+      categories: { custom_category: 10 } as unknown as CategoryScores,
+      appliedCaps: [],
+      qualityFlags: [],
+      riskFlags: [],
+      recommendations: []
+    }, evidence, rubric);
+
+    expect(adjusted.categories.custom_category).toBe(4);
+    expect(adjusted.band).toBe('Low');
+    expect(adjusted.appliedCaps).toContainEqual(expect.objectContaining({
+      category: 'custom_category',
+      reason: 'Custom evidence is missing'
+    }));
   });
 });

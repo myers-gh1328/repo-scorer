@@ -1,0 +1,190 @@
+{
+  "version": "1.0",
+  "totalScore": 100,
+  "categories": [
+    {
+      "key": "persistent_guidance",
+      "label": "Persistent guidance",
+      "weight": 15,
+      "scannerSection": "Persistent guidance",
+      "evaluate": "`AGENTS.md` or equivalent exists, is current, concise, accurate, and includes exact commands and safety boundaries; root `.cursorrules` counts as deprecated persistent guidance; nested guidance is expected only for multi-project or multi-service repos"
+    },
+    {
+      "key": "scoped_rules",
+      "label": "Scoped rules",
+      "weight": 10,
+      "scannerSection": "Scoped rules",
+      "evaluate": "Cursor/Copilot/Claude path-scoped rules exist where useful and are actionable"
+    },
+    {
+      "key": "skills",
+      "label": "Skills",
+      "weight": 10,
+      "scannerSection": "Skills",
+      "evaluate": "`SKILL.md` packages cover repeated workflows and include clear triggers and supporting files where useful"
+    },
+    {
+      "key": "specialized_agents",
+      "label": "Specialized agents",
+      "weight": 10,
+      "scannerSection": "Specialized agents",
+      "evaluate": "Verifier, test, security, debug, or other focused agents exist where useful and use least-privilege tools"
+    },
+    {
+      "key": "tool_manifests_mcp",
+      "label": "Tool manifests and MCP",
+      "weight": 10,
+      "scannerSection": "MCP and tool configs",
+      "evaluate": "External tools are configured only where needed, secrets are externalized, and access is governed"
+    },
+    {
+      "key": "validation_reproducibility",
+      "label": "Validation and reproducibility",
+      "weight": 10,
+      "scannerSection": "Validation and reproducibility",
+      "evaluate": "Agent-readable validation commands match real scripts/CI and the environment is reproducible"
+    },
+    {
+      "key": "ci_pr_automation",
+      "label": "CI and PR automation",
+      "weight": 10,
+      "scannerSection": "CI and PR automation",
+      "evaluate": "CI validates normal work and checks agent assets or AI-assisted PRs where appropriate"
+    },
+    {
+      "key": "security_sandboxing_hooks",
+      "label": "Security, sandboxing, and hooks",
+      "weight": 10,
+      "scannerSection": "Hooks and sandboxing",
+      "evaluate": "Hooks, deny rules, sandbox settings, approvals, and secret controls exist for risky workflows"
+    },
+    {
+      "key": "domain_context",
+      "label": "Domain and decision context",
+      "weight": 5,
+      "scannerSection": "Domain and decision context",
+      "evaluate": "ADRs, contracts, glossary, examples, fixtures, and templates are available and referenced"
+    },
+    {
+      "key": "governance_observability",
+      "label": "Governance and observability",
+      "weight": 5,
+      "scannerSection": "Governance and observability",
+      "evaluate": "Owners, review cadence, managed settings, logs, metrics, or dashboards exist where appropriate"
+    },
+    {
+      "key": "versioning_provenance",
+      "label": "Versioning and dependency provenance",
+      "weight": 3,
+      "scannerSection": "Versioning and dependency provenance",
+      "evaluate": "Agent assets are version-controlled; executable MCP/hook/skill dependencies are pinned or governed"
+    },
+    {
+      "key": "onboarding_discoverability",
+      "label": "Onboarding and discoverability",
+      "weight": 2,
+      "scannerSection": "Onboarding and discoverability",
+      "evaluate": "README or equivalent tells humans where agent guidance, rules, skills, and workflows live"
+    }
+  ],
+  "bands": [
+    {
+      "label": "Fragile",
+      "min": 0,
+      "max": 39,
+      "interpretation": "Agent behavior is mostly implicit, ad hoc, or person-dependent"
+    },
+    {
+      "label": "Emerging",
+      "min": 40,
+      "max": 59,
+      "interpretation": "Some useful artifacts exist, but they are incomplete or not yet reliable controls"
+    },
+    {
+      "label": "Operational",
+      "min": 60,
+      "max": 74,
+      "interpretation": "Agents can work productively with moderate safety and repeatability"
+    },
+    {
+      "label": "Managed",
+      "min": 75,
+      "max": 89,
+      "interpretation": "Context, tools, validation, and governance are integrated into normal engineering workflow"
+    },
+    {
+      "label": "Mature",
+      "min": 90,
+      "max": 100,
+      "interpretation": "Repo supports scalable, governed, observable, multi-agent operation"
+    }
+  ],
+  "caps": [
+    {
+      "category": "skills",
+      "maxScore": 4,
+      "reason": "No formal SKILL.md files found; adjacent workflow docs can earn only partial Skills credit",
+      "when": { "evidenceField": "hasFormalSkills", "equals": false }
+    },
+    {
+      "category": "ci_pr_automation",
+      "maxScore": 3,
+      "reason": "No GitHub Actions workflow files found",
+      "when": { "evidenceField": "hasCiWorkflow", "equals": false }
+    },
+    {
+      "category": "ci_pr_automation",
+      "maxScore": 6,
+      "reason": "CI workflows exist but are not triggered by push or pull_request",
+      "when": { "evidenceField": "hasManualOnlyCi", "equals": true }
+    },
+    {
+      "category": "tool_manifests_mcp",
+      "maxScore": 5,
+      "reason": "No MCP or explicit tool manifest files found",
+      "when": { "evidenceField": "hasMcpManifest", "equals": false }
+    }
+  ],
+  "bandConstraints": [
+    {
+      "band": "Mature",
+      "check": "has_tool_access_governance",
+      "category": "tool_manifests_mcp",
+      "severity": "high",
+      "requirement": "Mature repositories have governed tool access evidence such as an MCP or tool manifest",
+      "maxBandOnFailure": "Managed"
+    },
+    {
+      "band": "Mature",
+      "check": "has_reproducibility_evidence",
+      "category": "validation_reproducibility",
+      "severity": "high",
+      "requirement": "Mature repositories have deterministic build/test environment evidence",
+      "maxBandOnFailure": "Managed"
+    },
+    {
+      "band": "Mature",
+      "check": "has_agent_asset_ci_checks",
+      "category": "ci_pr_automation",
+      "severity": "high",
+      "requirement": "Mature repositories validate normal work and agent-related assets through CI",
+      "maxBandOnFailure": "Managed"
+    },
+    {
+      "band": "Mature",
+      "check": "has_sandbox_or_deny_controls",
+      "category": "security_sandboxing_hooks",
+      "severity": "high",
+      "requirement": "Mature repositories have deterministic safety controls such as hooks, deny rules, or sandbox defaults",
+      "maxBandOnFailure": "Managed"
+    },
+    {
+      "band": "Mature",
+      "check": "has_agent_context_review_cadence",
+      "category": "governance_observability",
+      "severity": "high",
+      "requirement": "Mature repositories document ownership or review cadence for agent-context assets",
+      "maxBandOnFailure": "Managed"
+    }
+  ]
+}

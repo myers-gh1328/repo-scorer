@@ -1,6 +1,7 @@
 import { CATEGORY_MAX, bandForScore } from './types';
 import type { AppliedScoreCap, CategoryScores, ScoreResult } from './types';
 import type { EvidenceInventory } from './scanner';
+import type { RubricDefinition } from './rubricSchema';
 
 interface ScoreCapRule {
   category: keyof CategoryScores;
@@ -36,15 +37,25 @@ export const SCORE_CAP_RULES: ScoreCapRule[] = [
   }
 ];
 
-export function applyEvidenceCaps(result: ScoreResult, evidence: EvidenceInventory): ScoreResult {
+export function applyEvidenceCaps(result: ScoreResult, evidence: EvidenceInventory, rubricDefinition?: RubricDefinition): ScoreResult {
   const rawCategories = { ...(result.rawCategories ?? result.categories) };
   const categories = { ...result.categories };
   const appliedCaps: AppliedScoreCap[] = [];
 
-  for (const rule of SCORE_CAP_RULES) {
+  const rules = rubricDefinition
+    ? (rubricDefinition.caps ?? []).map(rule => ({
+        category: rule.category,
+        maxScore: rule.maxScore,
+        reason: rule.reason,
+        applies: (evidence: EvidenceInventory) => evidenceValue(evidence, rule.when.evidenceField) === rule.when.equals
+      }))
+    : SCORE_CAP_RULES;
+
+  for (const rule of rules) {
     if (!rule.applies(evidence)) continue;
-    const originalScore = categories[rule.category];
-    const cappedScore = Math.min(originalScore, rule.maxScore, CATEGORY_MAX[rule.category]);
+    const originalScore = categories[rule.category] ?? 0;
+    const categoryMax = rubricDefinition?.categoryMax[rule.category] ?? CATEGORY_MAX[rule.category] ?? rule.maxScore;
+    const cappedScore = Math.min(originalScore, rule.maxScore, categoryMax);
     if (cappedScore < originalScore) {
       categories[rule.category] = cappedScore;
       appliedCaps.push({
@@ -65,6 +76,10 @@ export function applyEvidenceCaps(result: ScoreResult, evidence: EvidenceInvento
     categories,
     appliedCaps,
     score,
-    band: bandForScore(score)
+    band: rubricDefinition ? rubricDefinition.bandForScore(score) : bandForScore(score)
   };
+}
+
+function evidenceValue(evidence: EvidenceInventory, field: string): unknown {
+  return (evidence as unknown as Record<string, unknown>)[field];
 }

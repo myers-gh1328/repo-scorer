@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PageData } from './$types';
-  import { CATEGORY_MAX, CATEGORY_LABELS, bandColor } from '$lib/types';
+  import { bandColor } from '$lib/types';
 
   let { data }: { data: PageData } = $props();
 
@@ -13,6 +13,7 @@
   let exportedAt = $state('');
   let initializedExportState = $state(false);
   let copied = $state(false);
+  const actionsDisabled = $derived(rescoring);
 
   $effect(() => {
     if (!initializedExportState) {
@@ -100,7 +101,31 @@
     }
   }
 
-  const categoryEntries = Object.keys(CATEGORY_MAX) as (keyof typeof CATEGORY_MAX)[];
+  const categoryEntries = $derived(data.rubric.categories);
+  const categoryLabels = $derived(data.rubric.categoryLabels);
+
+  function scoreDrop(from: number, to: number): string {
+    const delta = from - to;
+    return delta > 0 ? `-${delta}` : '0';
+  }
+
+  const compactHistory = $derived(data.scoreHistory?.compact ?? []);
+
+  function trendDelta(current: number): number | null {
+    if (compactHistory.length < 2) return null;
+    return current - compactHistory[compactHistory.length - 2].finalScore;
+  }
+
+  function trendPoints(): string {
+    const entries = compactHistory.slice(-16);
+    if (entries.length === 0) return '';
+    if (entries.length === 1) return `0,${80 - entries[0].finalScore * 0.8} 240,${80 - entries[0].finalScore * 0.8}`;
+    return entries.map((entry, index) => {
+      const x = (index / (entries.length - 1)) * 240;
+      const y = 80 - entry.finalScore * 0.8;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+  }
 </script>
 
 <main>
@@ -109,10 +134,10 @@
   <div style="display:flex; justify-content:space-between; align-items:center; margin: 1.5rem 0 1rem; gap: 0.75rem;">
     <h1 style="margin:0">{data.name}</h1>
     <div class="button-row">
-      <button onclick={rescore} disabled={rescoring}>
+      <button onclick={rescore} disabled={actionsDisabled}>
         {rescoring ? 'Scoring…' : 'Re-score'}
       </button>
-      <button onclick={generatePlan} disabled={planning || !data.result}>
+      <button onclick={generatePlan} disabled={actionsDisabled || planning || !data.result}>
         {planning ? 'Generating…' : 'Generate Plan'}
       </button>
     </div>
@@ -132,78 +157,175 @@
     <p style="color:#888">This repo has not been scored yet. Click Re-score to evaluate it.</p>
   {:else}
     {@const r = data.result}
+    {@const modelScore = r.modelScore ?? r.rawScore ?? r.score}
+    {@const modelBand = r.modelBand ?? r.band}
+    {@const cappedScore = r.cappedScore ?? r.score}
+    {@const cappedBand = r.cappedBand ?? r.band}
+    {@const finalScore = r.finalScore ?? r.score}
+    {@const finalBand = r.finalBand ?? r.band}
+    {@const hasScoreStages = r.resultVersion === 2 || r.modelScore !== undefined || r.cappedScore !== undefined || r.finalScore !== undefined}
+    {@const qualityFlags = r.qualityFlags ?? []}
+    {@const riskFlags = r.riskFlags ?? []}
+    {@const recommendations = r.recommendations ?? []}
+    {@const failedConsistencyChecks = (r.consistencyChecks ?? []).filter(check => !check.passed)}
+    {@const appliedCaps = r.appliedCaps ?? []}
+    {@const delta = trendDelta(finalScore)}
 
     <div class="score-hero">
-      <span class="score-number" style="color:{bandColor(r.band)}">{r.score}</span>
-      <span class="band-label" style="color:{bandColor(r.band)}">{r.band}</span>
+      <span class="score-number" style="color:{bandColor(finalBand)}">{finalScore}</span>
+      <span class="band-label" style="color:{bandColor(finalBand)}">{finalBand}</span>
       <span style="color:#666; font-size:0.85rem">
         {r.primaryLanguage} · scored {new Date(r.scoredAt).toLocaleString()}
       </span>
-      {#if r.rawScore !== undefined && r.rawScore !== r.score}
-        <span style="color:#888; font-size:0.8rem">
-          Raw model score {r.rawScore}; adjusted by deterministic evidence caps.
-        </span>
+      {#if hasScoreStages}
+        <div class="score-stages">
+          <span>Model: {modelScore} {modelBand}</span>
+          <span>Evidence caps: {cappedScore} {cappedBand}</span>
+          <span>Final: {finalScore} {finalBand}</span>
+        </div>
       {/if}
     </div>
 
+    {#if hasScoreStages}
+      <div class="score-waterfall section">
+        <h2>Score Path</h2>
+        <div class="waterfall">
+          <div class="waterfall-step">
+            <span>Model</span>
+            <strong>{modelScore}</strong>
+            <small>{modelBand}</small>
+          </div>
+          <div class="waterfall-change">
+            {scoreDrop(modelScore, cappedScore)}
+          </div>
+          <div class="waterfall-step">
+            <span>Evidence caps</span>
+            <strong>{cappedScore}</strong>
+            <small>{cappedBand}</small>
+          </div>
+          <div class="waterfall-change">
+            {scoreDrop(cappedScore, finalScore)}
+          </div>
+          <div class="waterfall-step final">
+            <span>Final</span>
+            <strong>{finalScore}</strong>
+            <small>{finalBand}</small>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    {#if compactHistory.length > 0}
+      <div class="section trend-panel">
+        <div class="section-header">
+          <h2>Score Trend</h2>
+          <span class="muted">
+            {compactHistory.length} retained points
+            {#if data.scoreHistory?.full}
+              · {data.scoreHistory.full.length} full snapshots
+            {/if}
+          </span>
+        </div>
+        <div class="trend-summary">
+          <svg class="trend-chart" viewBox="0 0 240 80" aria-label="Score history trend">
+            <polyline points={trendPoints()} />
+          </svg>
+          <div>
+            <strong>{finalScore}</strong>
+            <span>{finalBand}</span>
+            {#if delta !== null}
+              <small class:positive={delta > 0} class:negative={delta < 0}>
+                {delta === 0 ? 'No change' : `${delta > 0 ? '+' : ''}${delta} since previous retained score`}
+              </small>
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
+
     <div class="categories section">
       <h2>Category Breakdown</h2>
-      {#each categoryEntries as key}
-        {@const val = r.categories[key]}
-        {@const max = CATEGORY_MAX[key]}
+      {#each categoryEntries as category}
+        {@const key = category.key}
+        {@const val = r.categories[key] ?? 0}
+        {@const rawVal = r.rawCategories?.[key]}
+        {@const max = category.weight}
         {@const pct = max > 0 ? (val / max) * 100 : 0}
         <div class="category-row">
           <div class="category-label">
-            <span>{CATEGORY_LABELS[key]}</span>
-            <span>{val} / {max}</span>
+            <span>{category.label}</span>
+            <span>
+              {val} / {max}
+              {#if rawVal !== undefined && rawVal !== val}
+                <small class="score-delta">model {rawVal}</small>
+              {/if}
+            </span>
           </div>
           <div class="bar-track">
-            <div class="bar-fill" style="width:{pct}%"></div>
+            <div class="bar-fill" style="width:{pct}%; background:{bandColor(pct >= 90 ? 'Mature' : pct >= 75 ? 'Managed' : pct >= 60 ? 'Operational' : pct >= 40 ? 'Emerging' : 'Fragile')}"></div>
           </div>
         </div>
       {/each}
     </div>
 
-    {#if r.appliedCaps && r.appliedCaps.length > 0}
+    {#if appliedCaps.length > 0}
       <div class="section">
         <h2>Score Adjustments</h2>
+        <div class="cap-grid">
+          {#each appliedCaps as cap}
+            <div class="cap-chip">
+              <strong>{categoryLabels[cap.category] ?? cap.category}</strong>
+              <span>{cap.originalScore} → {cap.cappedScore}</span>
+              <small>{cap.reason}</small>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    {#if failedConsistencyChecks.length > 0}
+      <div class="section">
+        <h2>Why Not {modelBand}</h2>
         <ul class="flags">
-          {#each r.appliedCaps as cap}
-            <li style="color:#f39c12">
-              {CATEGORY_LABELS[cap.category]} capped from {cap.originalScore} to {cap.cappedScore}: {cap.reason}
+          {#each failedConsistencyChecks as check}
+            <li style="color:#e67e22">
+              {check.requirement}: {check.reason}
+              {#if check.impact?.bandCeiling}
+                Final band ceiling: {check.impact.bandCeiling}
+              {/if}
             </li>
           {/each}
         </ul>
       </div>
     {/if}
 
-    {#if r.qualityFlags.length > 0}
+    {#if qualityFlags.length > 0}
       <div class="section">
         <h2>Strengths</h2>
         <ul class="flags">
-          {#each r.qualityFlags as flag}
+          {#each qualityFlags as flag}
             <li style="color:#2ecc71">✓ {flag}</li>
           {/each}
         </ul>
       </div>
     {/if}
 
-    {#if r.riskFlags.length > 0}
+    {#if riskFlags.length > 0}
       <div class="section">
         <h2>Risks</h2>
         <ul class="flags">
-          {#each r.riskFlags as flag}
+          {#each riskFlags as flag}
             <li style="color:#e74c3c">✗ {flag}</li>
           {/each}
         </ul>
       </div>
     {/if}
 
-    {#if r.recommendations.length > 0}
+    {#if recommendations.length > 0}
       <div class="section">
         <h2>Recommendations</h2>
         <ul class="flags">
-          {#each r.recommendations as rec}
+          {#each recommendations as rec}
             <li style="color:#f39c12">→ {rec}</li>
           {/each}
         </ul>
@@ -216,10 +338,10 @@
         <div class="section-header">
           <h2>Improvement Plan</h2>
           <div class="button-row">
-            <button onclick={exportPlan} disabled={exporting}>
+            <button onclick={exportPlan} disabled={actionsDisabled || exporting}>
               {exporting ? 'Exporting…' : exportedAt ? 'Re-export to Repo' : 'Export to Repo'}
             </button>
-            <button onclick={() => copyPlan(plan.markdown)}>
+            <button onclick={() => copyPlan(plan.markdown)} disabled={actionsDisabled}>
               {copied ? 'Copied' : 'Copy Markdown'}
             </button>
           </div>
@@ -237,7 +359,7 @@
             <div class="plan-task">
               <div class="task-heading">
                 <h3>{index + 1}. {task.title}</h3>
-                <span>{CATEGORY_LABELS[task.category]}</span>
+                <span>{categoryLabels[task.category] ?? task.category}</span>
               </div>
               <div class="task-meta">
                 <span>Impact: {task.impact}</span>
@@ -284,7 +406,7 @@
       <div class="section">
         <div class="section-header">
           <h2>Improvement Plan</h2>
-          <button onclick={generatePlan} disabled={planning}>
+          <button onclick={generatePlan} disabled={actionsDisabled || planning}>
             {planning ? 'Generating…' : 'Generate Plan'}
           </button>
         </div>
