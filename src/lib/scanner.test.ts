@@ -91,14 +91,19 @@ describe('scanRepo', () => {
   });
 
   it('detects formal SKILL.md files outside ignored directories', async () => {
+    await mkdir(join(repoDir, '.agent', 'skills', 'rubric-update'), { recursive: true });
     await mkdir(join(repoDir, '.agents', 'skills', 'repo-review'), { recursive: true });
     await mkdir(join(repoDir, 'node_modules', 'fake-skill'), { recursive: true });
+    await writeFile(join(repoDir, '.agent', 'skills', 'rubric-update', 'SKILL.md'), '# Rubric Update');
     await writeFile(join(repoDir, '.agents', 'skills', 'repo-review', 'SKILL.md'), '# Repo Review');
     await writeFile(join(repoDir, 'node_modules', 'fake-skill', 'SKILL.md'), '# Ignore me');
 
     const result = await scanRepo(repoDir);
 
-    expect(result.evidence.skillFiles).toEqual(['.agents/skills/repo-review/SKILL.md']);
+    expect(result.evidence.skillFiles).toEqual([
+      '.agent/skills/rubric-update/SKILL.md',
+      '.agents/skills/repo-review/SKILL.md'
+    ]);
     expect(result.evidence.hasFormalSkills).toBe(true);
   });
 

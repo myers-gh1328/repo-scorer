@@ -38,6 +38,7 @@ const SCANNED_DIRS = [
   '.github/instructions',
   '.github/skills',
   '.github/workflows',
+  '.agent/skills',
   '.agents/skills',
   '.codex/hooks',
   'docs/agent',
