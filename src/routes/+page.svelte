@@ -39,7 +39,7 @@
 
     async function loadScoreJobs() {
       try {
-        const res = await fetch('/api/score/status');
+        const res = await fetch(`/api/score/status?mode=${data.mode}`);
         if (!res.ok) return;
         const body = await res.json();
         if (!cancelled) scoreJobs = Array.isArray(body.jobs) ? body.jobs : [];
@@ -83,8 +83,12 @@
   async function clearStaleJobs() {
     clearingStale = true;
     try {
-      await fetch('/api/score/clear-stale', { method: 'POST' });
-      const res = await fetch('/api/score/status');
+      await fetch('/api/score/clear-stale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: data.mode })
+      });
+      const res = await fetch(`/api/score/status?mode=${data.mode}`);
       const body = await res.json().catch(() => ({ jobs: [] }));
       scoreJobs = Array.isArray(body.jobs) ? body.jobs : [];
     } finally {

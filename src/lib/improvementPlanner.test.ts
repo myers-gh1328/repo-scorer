@@ -163,6 +163,38 @@ describe('parseImprovementPlan', () => {
 		expect(result.prioritizedTasks).toHaveLength(1);
 	});
 
+	it('accepts maintainability rubric categories from the active score', () => {
+		const maintainabilityScore: ScoreResult = {
+			...score,
+			evaluationMode: 'maintainability',
+			band: 'Serviceable',
+			categories: {
+				verification_coverage: 8,
+				runtime_dependency_health: 6,
+				repository_hygiene: 7
+			}
+		};
+		const maintainabilityPlan = {
+			summary: 'Improve maintainability foundations.',
+			prioritizedTasks: [{
+				title: 'Add verification coverage',
+				category: 'verification_coverage',
+				impact: 'high',
+				effort: 'medium',
+				targetFiles: ['src/lib/example.test.ts'],
+				instructions: 'Add behavior-focused tests for the maintainability workflow so future changes have a clear local validation path.',
+				acceptanceCriteria: ['Tests cover maintainability behavior', 'Validation command is documented'],
+				validationCommands: ['npm test -- --run src/lib/example.test.ts']
+			}]
+		};
+
+		const result = parseImprovementPlan(JSON.stringify(maintainabilityPlan), 'repo-scorer', maintainabilityScore);
+
+		expect(result.prioritizedTasks).toHaveLength(1);
+		expect(result.prioritizedTasks[0].category).toBe('verification_coverage');
+		expect(result.markdown).toContain('Category: verification_coverage');
+	});
+
 	it('marks a stored plan as exported', async () => {
 		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		const plansPath = join(outDir, 'improvement-plans.json');

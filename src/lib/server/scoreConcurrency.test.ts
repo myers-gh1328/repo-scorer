@@ -127,4 +127,15 @@ describe('scoreConcurrency', () => {
 		expect(clearStaleScoringJobs()).toEqual(['stale-repo']);
 		expect(getScoringJobs().map(job => job.repoName)).toEqual(['running-repo']);
 	});
+
+	it('can clear stale scoring jobs for one evaluation mode only', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-06-25T12:00:00.000Z'));
+		expect(beginScoring('repo-a', 'ai-readiness')).toBe(true);
+		expect(beginScoring('repo-a', 'maintainability')).toBe(true);
+		vi.setSystemTime(new Date('2026-06-25T12:10:01.000Z'));
+
+		expect(clearStaleScoringJobs('maintainability')).toEqual(['repo-a']);
+		expect(getScoringJobs().map(job => `${job.repoName}:${job.evaluationMode}`)).toEqual(['repo-a:ai-readiness']);
+	});
 });

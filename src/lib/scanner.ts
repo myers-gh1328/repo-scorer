@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
+import { runtimeSupportRisks, type RuntimeSupportMatrix } from './reference/runtimeSupport';
 
 const MAX_FILE_CHARS = 8000;
 const MAX_COLLECT_DEPTH = 5;
@@ -162,7 +163,7 @@ export interface ScanResult {
   evidence: EvidenceInventory;
 }
 
-export async function scanRepo(repoPath: string): Promise<ScanResult> {
+export async function scanRepo(repoPath: string, runtimeSupport?: RuntimeSupportMatrix): Promise<ScanResult> {
   const files: ScannedFile[] = [];
 
   for (const filePath of EXACT_FILES) {
@@ -185,7 +186,7 @@ export async function scanRepo(repoPath: string): Promise<ScanResult> {
   await collectSkillFiles(repoPath, files);
   await collectMaintainabilityEvidenceFiles(repoPath, files);
 
-  return { files, evidence: buildEvidence(files) };
+  return { files, evidence: buildEvidence(files, runtimeSupport) };
 }
 
 async function collectNestedAgents(repoRoot: string, files: ScannedFile[]): Promise<void> {
@@ -267,7 +268,7 @@ async function collectByPredicate(
   }
 }
 
-function buildEvidence(files: ScannedFile[]): EvidenceInventory {
+function buildEvidence(files: ScannedFile[], runtimeSupport?: RuntimeSupportMatrix): EvidenceInventory {
   const paths = files.map(file => file.relativePath);
   const guidanceFiles = paths.filter(path => path === 'AGENTS.md' || path.endsWith('/AGENTS.md') || path === 'CLAUDE.md' || path === 'GEMINI.md' || path === '.github/copilot-instructions.md');
   const nestedGuidanceFiles = paths.filter(path => path.endsWith('/AGENTS.md'));
@@ -297,7 +298,7 @@ function buildEvidence(files: ScannedFile[]): EvidenceInventory {
   ]);
   const runtimeFiles = paths.filter(isRuntimePath);
   const runtimeVersionFiles = runtimeFiles.filter(path => /(package\.json|\.nvmrc|\.node-version|pyproject\.toml|runtime\.txt|global\.json|go\.mod|pom\.xml|build\.gradle|Dockerfile|\.csproj)$/i.test(path));
-  const eolRuntimeRisks: string[] = [];
+  const eolRuntimeRisks = runtimeSupport ? runtimeSupportRisks(files, runtimeSupport) : [];
 
   return {
     guidanceFiles,

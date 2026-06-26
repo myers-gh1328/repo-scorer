@@ -59,7 +59,8 @@ export const POST: RequestHandler = async ({ request }) => {
       scannerEvidenceVersion: '2026-06-26.1',
       ...(runtimeSupport ? {
         referenceDataVersion: runtimeSupport.version,
-        referenceDataLastUpdated: runtimeSupport.lastUpdated
+        referenceDataLastUpdated: runtimeSupport.lastUpdated,
+        runtimeSupport
       } : {})
     });
     return json(result);
