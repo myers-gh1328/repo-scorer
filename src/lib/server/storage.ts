@@ -120,7 +120,10 @@ export class Storage {
 			WHERE scores.evaluation_mode = ?
 			ORDER BY repos.name
 		`).all(mode) as { name: string; resultJson: string }[];
-		return Object.fromEntries(rows.map(row => [row.name, normalizeMode(JSON.parse(row.resultJson), mode)]));
+		return Object.fromEntries(rows.flatMap(row => {
+			const result = parseStoredJson<ScoreResult>(row.resultJson, mode);
+			return result ? [[row.name, result]] : [];
+		}));
 	}
 
 	getScore(repoName: string, mode: EvaluationMode = DEFAULT_EVALUATION_MODE): ScoreResult | null {
@@ -130,7 +133,7 @@ export class Storage {
 			JOIN repos ON repos.id = scores.repo_id
 			WHERE repos.name = ? AND scores.evaluation_mode = ?
 		`).get(repoName, mode) as { resultJson: string } | undefined;
-		return row ? normalizeMode(JSON.parse(row.resultJson), mode) : null;
+		return row ? parseStoredJson<ScoreResult>(row.resultJson, mode) : null;
 	}
 
 	saveScoreWithHistory(repoName: string, result: ScoreResult, mode: EvaluationMode = result.evaluationMode ?? DEFAULT_EVALUATION_MODE): void {
@@ -192,8 +195,8 @@ export class Storage {
 		`).all(row.id, mode) as { compactJson: string | null; fullJson: string | null }[];
 		if (rows.length === 0) return null;
 		return {
-			compact: pruneCompactHistory(rows.flatMap(item => item.compactJson ? [normalizeMode(JSON.parse(item.compactJson), mode)] : [])),
-			full: rows.flatMap(item => item.fullJson ? [normalizeMode(JSON.parse(item.fullJson), mode)] : []).slice(-5)
+			compact: pruneCompactHistory(rows.flatMap(item => item.compactJson ? maybeStoredJson<ScoreHistoryEntry>(item.compactJson, mode) : [])),
+			full: rows.flatMap(item => item.fullJson ? maybeStoredJson<ScoreResult>(item.fullJson, mode) : []).slice(-5)
 		};
 	}
 
@@ -212,8 +215,10 @@ export class Storage {
 			exportedAgentsPath: string | null;
 		} | undefined;
 		if (!row) return null;
+		const plan = parseStoredJson<ImprovementPlan>(row.planJson, mode);
+		if (!plan) return null;
 		return {
-			...normalizeMode(JSON.parse(row.planJson), mode),
+			...plan,
 			sourceRepoPath: row.sourceRepoPath,
 			...(row.exportedAt ? { exportedAt: row.exportedAt } : {}),
 			...(row.exportedPlanPath ? { exportedPlanPath: row.exportedPlanPath } : {}),
@@ -478,6 +483,20 @@ function normalizeMode<T>(value: T, mode: EvaluationMode): T {
 		throw new Error(`EVALUATION_MODE_MISMATCH: row is "${mode}" but JSON is "${embeddedMode}"`);
 	}
 	return { ...value, evaluationMode: mode } as T;
+}
+
+function parseStoredJson<T>(raw: string, mode: EvaluationMode): T | null {
+	try {
+		return normalizeMode(JSON.parse(raw), mode);
+	} catch (error) {
+		if (error instanceof SyntaxError) return null;
+		throw error;
+	}
+}
+
+function maybeStoredJson<T>(raw: string, mode: EvaluationMode): T[] {
+	const parsed = parseStoredJson<T>(raw, mode);
+	return parsed ? [parsed] : [];
 }
 
 function tableColumns(db: Database.Database, table: string): { name: string; pk: number }[] {

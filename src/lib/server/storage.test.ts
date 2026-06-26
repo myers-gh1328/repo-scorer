@@ -231,6 +231,29 @@ describe('storage', () => {
 		expect(() => reopened.getScore('repo-a', 'maintainability')).toThrow(/EVALUATION_MODE_MISMATCH/);
 	});
 
+	it('ignores malformed stored JSON without blocking reads', async () => {
+		const repoPath = await makeGitRepo('repo-a');
+		const store = storage();
+		await store.addRepo({ name: 'repo-a', path: repoPath });
+		await store.saveScoreWithHistory('repo-a', score(), 'ai-readiness');
+		await store.saveImprovementPlan('repo-a', plan('repo-a', repoPath), 'ai-readiness');
+		store.close();
+		resetStorageForTests();
+
+		const db = new Database(process.env.REPO_SCORER_DB_PATH);
+		db.prepare('UPDATE scores SET result_json = ? WHERE evaluation_mode = ?').run('{bad json', 'ai-readiness');
+		db.prepare('UPDATE score_history SET compact_json = ?, full_json = ? WHERE evaluation_mode = ?').run('{bad compact', '{bad full', 'ai-readiness');
+		db.prepare('UPDATE improvement_plans SET plan_json = ? WHERE evaluation_mode = ?').run('{bad plan', 'ai-readiness');
+		db.close();
+
+		const reopened = storage();
+		expect(reopened.getScore('repo-a')).toBeNull();
+		expect(reopened.getScoresStore()).toEqual({});
+		expect(reopened.getScoreHistory('repo-a')).toEqual({ compact: [], full: [] });
+		expect(reopened.getImprovementPlan('repo-a')).toBeNull();
+		expect(reopened.getImprovementPlansStore()).toEqual({});
+	});
+
 	it('rolls back score persistence when history insertion fails', async () => {
 		const repoPath = await makeGitRepo('repo-a');
 		const store = storage();
