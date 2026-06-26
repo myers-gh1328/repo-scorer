@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Rubric Freshness"
+  short_description: "Audit rubric freshness with current sources."
+  default_prompt: "Research whether the current repo-scorer rubric is outdated against current official sources and write a freshness report."

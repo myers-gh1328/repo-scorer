@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement Rubric Update"
+  short_description: "Apply approved rubric update reports."
+  default_prompt: "Implement an approved repo-scorer rubric update using the provided freshness report and optional candidate evaluation report."
