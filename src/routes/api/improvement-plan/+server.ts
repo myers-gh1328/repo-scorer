@@ -3,7 +3,7 @@ import { error, json } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { readAppSettings } from '$lib/server/appSettings';
-import { readRepoConfig } from '$lib/server/repoConfig';
+import { isGitRepo, readRepoConfig } from '$lib/server/repoConfig';
 import {
 	assertImprovementPlanExportAllowed,
 	exportImprovementPlanToRepo,
@@ -11,9 +11,9 @@ import {
 	markImprovementPlanExported
 } from '$lib/improvementPlanner';
 import { improvementPlanResponseFormat } from '$lib/responseSchemas';
-import type { ImprovementPlansStore, RepoConfig, ScoresStore } from '$lib/types';
+import { storage } from '$lib/server/storage';
+import type { RepoConfig } from '$lib/types';
 
-const PLANS_PATH = 'improvement-plans.json';
 const RUBRIC_PATH = 'rubric.md';
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -36,13 +36,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	if (action === 'export') {
-		let plans: ImprovementPlansStore = {};
-		try {
-			plans = JSON.parse(await readFile(PLANS_PATH, 'utf-8'));
-		} catch {
-			throw error(400, 'Generate an improvement plan before exporting it');
-		}
-		const plan = plans[name];
+		const plan = storage().getImprovementPlan(name);
 		if (!plan) {
 			throw error(400, 'Generate an improvement plan before exporting it');
 		}
@@ -55,8 +49,14 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 			throw error(403, 'Export is disabled for this repo');
 		}
+		if (!(await isGitRepo(path))) {
+			throw error(400, 'Export target must be an existing Git repository');
+		}
+		if (plan.sourceRepoPath && plan.sourceRepoPath !== path) {
+			throw error(409, 'Generated plan belongs to a different repo path. Regenerate the plan before exporting.');
+		}
 		const exported = await exportImprovementPlanToRepo(path, plan);
-		return json({ ...(await markImprovementPlanExported(PLANS_PATH, name, exported)), exported });
+		return json({ ...(await markImprovementPlanExported(undefined, name, exported)), exported });
 	}
 
 	if (action !== 'generate') {
@@ -70,13 +70,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(500, 'rubric.md not found in project root');
 	}
 
-	let scores: ScoresStore = {};
-	try {
-		scores = JSON.parse(await readFile('scores.json', 'utf-8'));
-	} catch {
-		throw error(400, 'Score this repo before generating an improvement plan');
-	}
-	const score = scores[name];
+	const score = storage().getScore(name);
 	if (!score) {
 		throw error(400, 'Score this repo before generating an improvement plan');
 	}
@@ -88,7 +82,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			model: llmModel,
 			maxTokens: 4096,
 			responseFormat: useJsonSchema ? improvementPlanResponseFormat : undefined
-		}, PLANS_PATH, aiTooling);
+		}, undefined, aiTooling);
 		return json(plan);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);

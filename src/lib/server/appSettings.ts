@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { DEFAULT_OPENAI_MODEL_ID, requireOpenAIModelId } from '$lib/modelCatalog';
+import { DEFAULT_OPENAI_MODEL_ID, normalizeModelId } from '$lib/modelCatalog';
 
 const DEFAULT_ENV_PATH = '.env';
 const DEFAULT_LLM_BASE_URL = 'http://localhost:8080';
@@ -76,7 +76,7 @@ export function normalizeAiTooling(value: string): AiTooling {
 }
 
 export function normalizeModel(value: string): string {
-	return requireOpenAIModelId(value.trim() || DEFAULT_OPENAI_MODEL_ID);
+	return normalizeModelId(value.trim() || DEFAULT_OPENAI_MODEL_ID);
 }
 
 function normalizeBoolean(value: string): boolean {

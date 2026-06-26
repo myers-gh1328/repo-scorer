@@ -34,7 +34,7 @@
 		return configured.some(repo => repo.path === path);
 	}
 
-	async function updateRepo(action: 'add' | 'remove', repo: RepoConfig) {
+	async function updateRepo(action: 'add' | 'remove' | 'setExport', repo: RepoConfig, updates: Partial<RepoConfig> = {}) {
 		saving = `${action}:${repo.path}`;
 		message = '';
 		formError = '';
@@ -42,7 +42,7 @@
 			const res = await fetch('/api/repos', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action, name: repo.name, path: repo.path })
+				body: JSON.stringify({ action, name: repo.name, path: repo.path, ...updates })
 			});
 			const body = await res.json().catch(() => null);
 			if (!res.ok) {
@@ -50,7 +50,11 @@
 				return;
 			}
 			configured = body.configured;
-			message = action === 'add' ? `Added ${repo.name}` : `Removed ${repo.name}`;
+			message = action === 'add'
+				? `Added ${repo.name}`
+				: action === 'remove'
+					? `Removed ${repo.name}`
+					: `Updated ${repo.name}`;
 			if (action === 'add' && repo.path === manualPath.trim()) {
 				manualName = '';
 				manualPath = '';
@@ -183,6 +187,7 @@
 					<tr>
 						<th>Name</th>
 						<th>Path</th>
+						<th>Plan export</th>
 						<th></th>
 					</tr>
 				</thead>
@@ -191,6 +196,17 @@
 						<tr>
 							<td>{repo.name}</td>
 							<td class="path-cell">{repo.path}</td>
+							<td>
+								<label class="checkbox-label">
+									<input
+										type="checkbox"
+										checked={repo.allowPlanExport === true}
+										disabled={saving === `setExport:${repo.path}`}
+										onchange={(event) => updateRepo('setExport', repo, { allowPlanExport: event.currentTarget.checked })}
+									/>
+									<span>{repo.allowPlanExport === true ? 'Enabled' : 'Disabled'}</span>
+								</label>
+							</td>
 							<td>
 								<button
 									class="danger"

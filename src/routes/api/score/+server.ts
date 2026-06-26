@@ -10,8 +10,6 @@ import { readRubricDefinition } from '$lib/rubricSchema';
 import { beginScoring, finishScoring } from '$lib/server/scoreConcurrency';
 import type { RepoConfig } from '$lib/types';
 
-const SCORES_PATH = 'scores.json';
-const SCORE_HISTORY_PATH = 'score-history.json';
 const RUBRIC_PATH = 'rubric.md';
 const RUBRIC_SCHEMA_PATH = 'rubric.schema.json';
 
@@ -56,7 +54,7 @@ export const POST: RequestHandler = async ({ request }) => {
       model: llmModel,
       maxTokens: 4096,
       responseFormat: useJsonSchema ? scoreResponseFormat : undefined
-    }, SCORES_PATH, rubricDefinition, SCORE_HISTORY_PATH);
+    }, undefined, rubricDefinition);
     return json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
