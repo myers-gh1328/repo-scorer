@@ -24,11 +24,6 @@ const QUALITY_ERROR_MARKERS = [
 	'should not only create agent artifact files',
 	'validationCommands are too weak'
 ];
-const AGENTS_POINTER = `## Agent Improvement Plan
-
-This repository has a generated agent-facing improvement plan at \`${EXPORTED_PLAN_PATH}\`. Review it before making repo maturity improvements.
-`;
-
 export function assertImprovementPlanExportAllowed(repo: RepoConfig): void {
 	if (repo.openSource || repo.visibility === 'public') {
 		throw new Error('PLAN_EXPORT_BLOCKED_PUBLIC_REPO');
@@ -51,21 +46,21 @@ export async function generateImprovementPlan(
 	const scan = await scanRepo(repoPath);
 	const inventory = await collectRepoInventory(repoPath);
 	const validationCandidates = await collectValidationCommandCandidates(repoPath, inventory);
-	const raw = await callPlanModel(llmConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, inventory, validationCandidates, aiTooling));
+	const raw = await callPlanModel(llmConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, inventory, validationCandidates, aiTooling, evaluationMode));
 	let repairCount = 0;
 	let plan = prepareGeneratedPlan(tryParseImprovementPlan(raw, repoName, score), aiTooling);
 	let validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Response was not valid JSON matching the required plan schema.'];
 	const qualityWarnings = new Set(validationErrors.filter(isQualityValidationError));
 
 	if (!plan || validationErrors.length > 0) {
-		const repaired = await callPlanModel(llmConfig, buildRepairPrompt(raw, repoName, score, validationErrors, inventory, validationCandidates, aiTooling));
+		const repaired = await callPlanModel(llmConfig, buildRepairPrompt(raw, repoName, score, validationErrors, inventory, validationCandidates, aiTooling, evaluationMode));
 		repairCount += 1;
 		plan = prepareGeneratedPlan(tryParseImprovementPlan(repaired, repoName, score), aiTooling);
 		validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Repaired response was not valid JSON matching the required plan schema.'];
 		validationErrors.filter(isQualityValidationError).forEach(error => qualityWarnings.add(error));
 
 		if (plan && validationErrors.length > 0 && validationErrors.every(isQualityValidationError)) {
-			const repairedQuality = await callPlanModel(llmConfig, buildRepairPrompt(repaired, repoName, score, validationErrors, inventory, validationCandidates, aiTooling));
+			const repairedQuality = await callPlanModel(llmConfig, buildRepairPrompt(repaired, repoName, score, validationErrors, inventory, validationCandidates, aiTooling, evaluationMode));
 			repairCount += 1;
 			plan = prepareGeneratedPlan(tryParseImprovementPlan(repairedQuality, repoName, score), aiTooling);
 			validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Quality repair response was not valid JSON matching the required plan schema.'];
@@ -136,7 +131,7 @@ export async function exportImprovementPlanToRepo(repoPath: string, plan: Improv
 
 	await mkdir(agentDir, { recursive: true });
 	await writeFile(planPath, `${plan.markdown.trim()}\n`);
-	await ensureAgentsPointer(agentsPath);
+	await ensureAgentsPointer(agentsPath, exportPath);
 
 	return { planPath: exportPath, agentsPath: 'AGENTS.md' };
 }
@@ -572,17 +567,21 @@ function renderImprovementMarkdown(plan: ImprovementPlan): string {
 	return lines.join('\n');
 }
 
-async function ensureAgentsPointer(agentsPath: string): Promise<void> {
+async function ensureAgentsPointer(agentsPath: string, exportPath: string): Promise<void> {
 	let content = '';
 	if (existsSync(agentsPath)) {
 		content = await readFile(agentsPath, 'utf-8');
 	}
-	if (content.includes(EXPORTED_PLAN_PATH)) {
+	if (content.includes(exportPath)) {
 		return;
 	}
+	const pointer = `## Agent Improvement Plan
+
+This repository has a generated agent-facing improvement plan at \`${exportPath}\`. Review it before making repo maturity improvements.
+`;
 	const next = content.trim()
-		? `${content.trim()}\n\n${AGENTS_POINTER}`
-		: `# Agent Guidance\n\n${AGENTS_POINTER}`;
+		? `${content.trim()}\n\n${pointer}`
+		: `# Agent Guidance\n\n${pointer}`;
 	await writeFile(agentsPath, next);
 }
 
@@ -593,7 +592,8 @@ function buildImprovementPrompt(
 	files: { relativePath: string; content: string }[],
 	inventory: RepoInventory,
 	validationCandidates: string[],
-	aiTooling: AiTooling
+	aiTooling: AiTooling,
+	evaluationMode: EvaluationMode
 ): string {
 	const evidence = files.length === 0
 		? 'No agent-related files found in this repository.'
@@ -647,9 +647,7 @@ Required schema:
 }
 
 Plan quality hints:
-- A good small-model plan often has one task that updates existing guidance such as AGENTS.md or README.md.
-- A good small-model plan often has one task that creates scoped rules for a real source, docs, or infra path from the inventory.
-- A good small-model plan often has one task that creates a reusable workflow skill or verifier agent tied to real repo files.
+${planQualityHints(evaluationMode)}
 - Prefer validation commands from VALIDATION COMMAND CANDIDATES. If using a new-file existence check, also include at least one grep/content check or repo test/check command somewhere in the plan.
 
 Rules:
@@ -657,7 +655,7 @@ Rules:
 - Optimize for the highest score impact first.
 - Each task must be independently actionable in one coding-agent session.
 - At least one task must improve or update an existing repo file from REPOSITORY PATH INVENTORY, such as AGENTS.md, README.md, package scripts, CI workflow files, docs, or validation workflow guidance. Do not make every task only create new .agent files.
-- Prefer portable, agent-agnostic files such as AGENTS.md, .agent/improvement-plan.md, .agent/rules/*.md, .agent/skills/*/SKILL.md, .agent/agents/*.md, docs/adr/*.md, Makefile, package scripts, and CI workflow files when CI already exists.
+- Prefer ${preferredPlanTargets(evaluationMode)}.
 - If AI TOOLING TARGET is generic, do not recommend tool/vendor-specific files such as .cursor/**, .claude/**, .windsurf/**, or .github/copilot-instructions.md.
 - If AI TOOLING TARGET names a specific tool, recommend that tool's conventional files where appropriate.
 - Every task must have concrete repo-relative targetFiles.
@@ -670,23 +668,7 @@ Rules:
 - Return exactly one raw JSON object. Do not return markdown, commentary, code fences, or explanations.
 
 Example shape:
-{
-  "summary": "This repo has useful baseline guidance but needs portable scoped rules, reusable workflow instructions, and validation hooks so agents can make repeatable changes safely.",
-  "strongestCategories": ["persistent_guidance"],
-  "weakestCategories": ["scoped_rules", "skills", "validation_reproducibility"],
-  "prioritizedTasks": [
-    {
-      "title": "Add portable scoped repo rules",
-      "category": "scoped_rules",
-      "impact": "high",
-      "effort": "medium",
-      "targetFiles": [".agent/rules/repo-guidance.md"],
-      "instructions": "Create repo-specific scoped guidance for the highest-risk code areas. Include conventions, ownership boundaries, and the exact validation commands agents should run before reporting completion.",
-      "acceptanceCriteria": ["The file contains repo-specific path or module guidance", "The file includes concrete validation commands"],
-      "validationCommands": ["test -f .agent/rules/repo-guidance.md"]
-    }
-  ]
-}`;
+${planExample(evaluationMode)}`;
 }
 
 function toolingInstruction(aiTooling: AiTooling): string {
@@ -711,7 +693,8 @@ function buildRepairPrompt(
 	validationErrors: string[],
 	inventory: RepoInventory,
 	validationCandidates: string[],
-	aiTooling: AiTooling
+	aiTooling: AiTooling,
+	evaluationMode: EvaluationMode
 ): string {
 	const repairInventory = inventory.list.slice(0, 200);
 	return `Return one valid JSON object for an improvement plan for ${repoName}. Do not include markdown, comments, code fences, or explanation.
@@ -721,6 +704,9 @@ ${JSON.stringify(score, null, 2)}
 
 AI tooling target:
 ${toolingInstruction(aiTooling)}
+
+Evaluation mode:
+${evaluationMode}
 
 Validation errors to fix:
 ${validationErrors.map(error => `- ${error}`).join('\n')}
@@ -747,10 +733,78 @@ Repair rules:
 - Every task needs concrete targetFiles, specific instructions, at least two acceptanceCriteria, and at least one validationCommands entry.
 - Do not make every task only create new .agent files. Include at least one task that updates an existing repo guidance, workflow, validation, or docs file from the inventory.
 - Do not use only existence/listing checks. Include at least one stronger repo validation command or content check such as grep, npm run check, dotnet test, make test, or pytest.
-- Generic tooling must use AGENTS.md and .agent/**, not vendor-specific files.
+- ${repairTargetRule(evaluationMode)}
 
 Original model output to repair:
 ${raw}`;
+}
+
+function planQualityHints(evaluationMode: EvaluationMode): string {
+	if (evaluationMode === 'maintainability') {
+		return [
+			'- A good maintainability plan often has one task that strengthens tests, validation commands, or CI around real repo behavior.',
+			'- A good maintainability plan often has one task that improves runtime/dependency, IaC, credential, or repository hygiene using existing project files.',
+			'- A good maintainability plan often has one task that updates README, setup, troubleshooting, architecture, or operational docs when those gaps affect maintainers.'
+		].join('\n');
+	}
+	return [
+		'- A good small-model plan often has one task that updates existing guidance such as AGENTS.md or README.md.',
+		'- A good small-model plan often has one task that creates scoped rules for a real source, docs, or infra path from the inventory.',
+		'- A good small-model plan often has one task that creates a reusable workflow skill or verifier agent tied to real repo files.'
+	].join('\n');
+}
+
+function preferredPlanTargets(evaluationMode: EvaluationMode): string {
+	if (evaluationMode === 'maintainability') {
+		return 'existing tests, package scripts, CI workflow files, README.md, docs/adr/*.md, docs/architecture/*.md, Makefile, IaC validation files, safe example config, and operational documentation before creating agent-specific artifacts';
+	}
+	return 'portable, agent-agnostic files such as AGENTS.md, .agent/improvement-plan.md, .agent/rules/*.md, .agent/skills/*/SKILL.md, .agent/agents/*.md, docs/adr/*.md, Makefile, package scripts, and CI workflow files when CI already exists';
+}
+
+function repairTargetRule(evaluationMode: EvaluationMode): string {
+	if (evaluationMode === 'maintainability') {
+		return 'Maintainability plans should prefer existing repo tests, validation, docs, CI, runtime, dependency, IaC, and configuration files; do not convert maintainability gaps into agent artifact work unless the score evidence specifically calls for it.';
+	}
+	return 'Generic tooling must use AGENTS.md and .agent/**, not vendor-specific files.';
+}
+
+function planExample(evaluationMode: EvaluationMode): string {
+	if (evaluationMode === 'maintainability') {
+		return JSON.stringify({
+			summary: 'This repo has useful project files but needs clearer runtime guidance, stronger validation, and onboarding docs so maintainers can make routine changes safely.',
+			strongestCategories: ['repository_hygiene'],
+			weakestCategories: ['verification_coverage', 'runtime_dependency_health'],
+			prioritizedTasks: [
+				{
+					title: 'Document runtime support policy',
+					category: 'runtime_dependency_health',
+					impact: 'high',
+					effort: 'low',
+					targetFiles: ['README.md'],
+					instructions: 'Update README.md with supported runtime versions, dependency update expectations, and the validation command maintainers should run before merging runtime changes.',
+					acceptanceCriteria: ['README.md names supported runtime expectations', 'README.md includes a concrete validation command'],
+					validationCommands: ['grep -q "runtime" README.md']
+				}
+			]
+		}, null, 2);
+	}
+	return JSON.stringify({
+		summary: 'This repo has useful baseline guidance but needs portable scoped rules, reusable workflow instructions, and validation hooks so agents can make repeatable changes safely.',
+		strongestCategories: ['persistent_guidance'],
+		weakestCategories: ['scoped_rules', 'skills', 'validation_reproducibility'],
+		prioritizedTasks: [
+			{
+				title: 'Add portable scoped repo rules',
+				category: 'scoped_rules',
+				impact: 'high',
+				effort: 'medium',
+				targetFiles: ['.agent/rules/repo-guidance.md'],
+				instructions: 'Create repo-specific scoped guidance for the highest-risk code areas. Include conventions, ownership boundaries, and the exact validation commands agents should run before reporting completion.',
+				acceptanceCriteria: ['The file contains repo-specific path or module guidance', 'The file includes concrete validation commands'],
+				validationCommands: ['test -f .agent/rules/repo-guidance.md']
+			}
+		]
+	}, null, 2);
 }
 
 function normalizeCategoryList(value: unknown, allowedCategories: string[]): string[] {

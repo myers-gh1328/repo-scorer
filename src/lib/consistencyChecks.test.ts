@@ -156,4 +156,97 @@ describe('applyConsistencyChecks', () => {
 			'has_tool_access_governance'
 		]);
 	});
+
+	it('does not pass supported-runtime constraints for unknown runtime posture', () => {
+		const maintainabilityRubric: RubricDefinition = {
+			...rubric,
+			bands: [
+				{ label: 'Serviceable', min: 0, max: 74 },
+				{ label: 'Healthy', min: 75, max: 89 }
+			],
+			bandConstraints: [
+				{
+					band: 'Healthy',
+					check: 'has_supported_core_runtime',
+					category: 'runtime_dependency_health',
+					severity: 'high',
+					requirement: 'Healthy requires supported core runtime evidence',
+					maxBandOnFailure: 'Serviceable'
+				}
+			],
+			bandForScore(score: number) {
+				return score >= 75 ? 'Healthy' : 'Serviceable';
+			}
+		};
+
+		const healthyResult = {
+			...result(82),
+			modelBand: 'Healthy',
+			cappedBand: 'Healthy',
+			finalBand: 'Healthy',
+			band: 'Healthy'
+		};
+		const adjusted = applyConsistencyChecks(healthyResult, {
+			...evidence,
+			runtimeVersionFiles: ['.node-version'],
+			unknownRuntimeVersionFiles: ['.node-version'],
+			eolRuntimeRisks: [],
+			supportedRuntimeFiles: [],
+			hasSupportedCoreRuntime: false
+		}, maintainabilityRubric);
+
+		expect(adjusted.finalBand).toBe('Serviceable');
+		expect(adjusted.consistencyChecks).toContainEqual(expect.objectContaining({
+			id: 'has_supported_core_runtime',
+			passed: false,
+			evidence: ['.node-version'],
+			reason: expect.stringContaining('unknown')
+		}));
+	});
+
+	it('prioritizes unknown runtime evidence over supported files when runtime posture is mixed', () => {
+		const maintainabilityRubric: RubricDefinition = {
+			...rubric,
+			bands: [
+				{ label: 'Serviceable', min: 0, max: 74 },
+				{ label: 'Healthy', min: 75, max: 89 }
+			],
+			bandConstraints: [
+				{
+					band: 'Healthy',
+					check: 'has_supported_core_runtime',
+					category: 'runtime_dependency_health',
+					severity: 'high',
+					requirement: 'Healthy requires supported core runtime evidence',
+					maxBandOnFailure: 'Serviceable'
+				}
+			],
+			bandForScore(score: number) {
+				return score >= 75 ? 'Healthy' : 'Serviceable';
+			}
+		};
+		const healthyResult = {
+			...result(82),
+			modelBand: 'Healthy',
+			cappedBand: 'Healthy',
+			finalBand: 'Healthy',
+			band: 'Healthy'
+		};
+
+		const adjusted = applyConsistencyChecks(healthyResult, {
+			...evidence,
+			runtimeVersionFiles: ['.nvmrc', 'Dockerfile'],
+			unknownRuntimeVersionFiles: ['Dockerfile'],
+			eolRuntimeRisks: [],
+			supportedRuntimeFiles: ['.nvmrc'],
+			hasSupportedCoreRuntime: false
+		}, maintainabilityRubric);
+
+		expect(adjusted.finalBand).toBe('Serviceable');
+		expect(adjusted.consistencyChecks).toContainEqual(expect.objectContaining({
+			id: 'has_supported_core_runtime',
+			passed: false,
+			evidence: ['Dockerfile']
+		}));
+	});
 });

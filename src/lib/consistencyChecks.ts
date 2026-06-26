@@ -92,13 +92,22 @@ const CHECKS: Record<ConsistencyCheckId, CheckEvaluator> = {
 	has_supported_core_runtime(evidence) {
 		const risks = stringArrayEvidence(evidence, 'eolRuntimeRisks');
 		const runtimeFiles = stringArrayEvidence(evidence, 'runtimeVersionFiles');
+		const supportedRuntimeFiles = stringArrayEvidence(evidence, 'supportedRuntimeFiles');
+		const unknownRuntimeVersionFiles = stringArrayEvidence(evidence, 'unknownRuntimeVersionFiles');
 		const hasKnownSupportedRuntime = booleanEvidence(evidence, 'hasSupportedCoreRuntime');
+		const hasStaleReferenceData = booleanEvidence(evidence, 'runtimeReferenceDataStale');
+		const checkEvidence = runtimeSupportCheckEvidence(
+			risks,
+			supportedRuntimeFiles,
+			unknownRuntimeVersionFiles,
+			runtimeFiles,
+			hasStaleReferenceData
+		);
+		const reason = runtimeSupportCheckReason(risks, hasKnownSupportedRuntime, hasStaleReferenceData);
 		return {
-			passed: hasKnownSupportedRuntime || risks.length === 0,
-			evidence: risks.length > 0 ? risks : runtimeFiles.length > 0 ? runtimeFiles : ['No EOL runtime risk evidence found'],
-			reason: risks.length > 0
-				? 'Runtime support risks were found'
-				: 'No known EOL runtime risk was found in scanner evidence'
+			passed: hasKnownSupportedRuntime,
+			evidence: checkEvidence,
+			reason
 		};
 	},
 	has_secret_controls(evidence) {
@@ -146,6 +155,28 @@ function stringArrayEvidence(evidence: EvidenceInventory, field: string): string
 
 function booleanEvidence(evidence: EvidenceInventory, field: string): boolean {
 	return (evidence as unknown as Record<string, unknown>)[field] === true;
+}
+
+function runtimeSupportCheckEvidence(
+	risks: string[],
+	supportedRuntimeFiles: string[],
+	unknownRuntimeVersionFiles: string[],
+	runtimeFiles: string[],
+	hasStaleReferenceData: boolean
+): string[] {
+	if (risks.length > 0) return risks;
+	if (hasStaleReferenceData) return ['Runtime support reference data is stale'];
+	if (unknownRuntimeVersionFiles.length > 0) return unknownRuntimeVersionFiles;
+	if (supportedRuntimeFiles.length > 0) return supportedRuntimeFiles;
+	if (runtimeFiles.length > 0) return runtimeFiles;
+	return ['No parseable supported runtime version evidence found'];
+}
+
+function runtimeSupportCheckReason(risks: string[], hasKnownSupportedRuntime: boolean, hasStaleReferenceData: boolean): string {
+	if (risks.length > 0) return 'Runtime support risks were found';
+	if (hasStaleReferenceData) return 'Runtime support posture is unknown because checked-in reference data is stale';
+	if (hasKnownSupportedRuntime) return 'A checked-in support matrix matched at least one supported runtime version and found no unsupported runtime risk';
+	return 'Runtime support posture is unknown because scanner evidence did not match a supported runtime version in checked-in reference data';
 }
 
 export function applyConsistencyChecks(

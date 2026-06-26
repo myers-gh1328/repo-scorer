@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
-import { runtimeSupportRisks, type RuntimeSupportMatrix } from './reference/runtimeSupport';
+import { isRuntimeSupportMatrixStale, runtimeSupportAnalysis, type RuntimeSupportMatrix } from './reference/runtimeSupport';
 
 const MAX_FILE_CHARS = 8000;
 const MAX_COLLECT_DEPTH = 5;
@@ -155,6 +155,9 @@ export interface EvidenceInventory {
   runtimeFiles?: string[];
   runtimeVersionFiles?: string[];
   eolRuntimeRisks?: string[];
+  supportedRuntimeFiles?: string[];
+  unknownRuntimeVersionFiles?: string[];
+  runtimeReferenceDataStale?: boolean;
   hasSupportedCoreRuntime?: boolean;
 }
 
@@ -298,7 +301,10 @@ function buildEvidence(files: ScannedFile[], runtimeSupport?: RuntimeSupportMatr
   ]);
   const runtimeFiles = paths.filter(isRuntimePath);
   const runtimeVersionFiles = runtimeFiles.filter(path => /(package\.json|\.nvmrc|\.node-version|pyproject\.toml|runtime\.txt|global\.json|go\.mod|pom\.xml|build\.gradle|Dockerfile|\.csproj)$/i.test(path));
-  const eolRuntimeRisks = runtimeSupport ? runtimeSupportRisks(files, runtimeSupport) : [];
+  const runtimeAnalysis = runtimeSupport
+    ? runtimeSupportAnalysis(files, runtimeSupport)
+    : { risks: [], supportedRuntimeFiles: [], unknownRuntimeVersionFiles: [] };
+  const eolRuntimeRisks = runtimeAnalysis.risks;
 
   return {
     guidanceFiles,
@@ -336,7 +342,13 @@ function buildEvidence(files: ScannedFile[], runtimeSupport?: RuntimeSupportMatr
     runtimeFiles,
     runtimeVersionFiles,
     eolRuntimeRisks,
-    hasSupportedCoreRuntime: eolRuntimeRisks.length === 0
+    supportedRuntimeFiles: runtimeAnalysis.supportedRuntimeFiles,
+    unknownRuntimeVersionFiles: runtimeAnalysis.unknownRuntimeVersionFiles,
+    runtimeReferenceDataStale: runtimeSupport ? isRuntimeSupportMatrixStale(runtimeSupport) : undefined,
+    hasSupportedCoreRuntime: runtimeAnalysis.supportedRuntimeFiles.length > 0
+      && eolRuntimeRisks.length === 0
+      && runtimeAnalysis.unknownRuntimeVersionFiles.length === 0
+      && !(runtimeSupport ? isRuntimeSupportMatrixStale(runtimeSupport) : false)
   };
 }
 

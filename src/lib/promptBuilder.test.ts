@@ -34,6 +34,12 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('Scoring rubric content goes here.');
   });
 
+  it('names the maintainability guide when maintainability mode is selected', () => {
+    const scan: ScanResult = { files: [], evidence: emptyEvidence };
+    const prompt = buildPrompt(rubric, scan, 'maintainability');
+    expect(prompt).toContain('against the Maintainability Guide');
+  });
+
   it('includes file paths and content for scanned files', () => {
     const scan: ScanResult = {
       files: [{ relativePath: 'AGENTS.md', content: '# Agent Guide' }],
@@ -164,5 +170,34 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('cannot exceed 4');
     expect(prompt).toContain('adjacent documentation may earn partial credit only');
     expect(prompt).toContain('the score cannot be the category maximum');
+  });
+
+  it('names maintainability category prompts when maintainability mode is selected', () => {
+    const scan: ScanResult = {
+      files: [],
+      evidence: { ...emptyEvidence }
+    };
+    const rubricDefinition: RubricDefinition = {
+      version: 'test',
+      totalScore: 10,
+      categories: [
+        { key: 'verification_coverage', label: 'Verification coverage', weight: 10, evaluate: 'Evaluate tests' }
+      ],
+      bands: [{ label: 'Any', min: 0, max: 10 }],
+      totalWeight: 10,
+      categoryMax: { verification_coverage: 10 },
+      categoryLabels: { verification_coverage: 'Verification coverage' },
+      bandForScore: () => 'Any'
+    };
+
+    const prompt = buildCategoryPrompt(rubric, rubricDefinition, rubricDefinition.categories[0], scan, {
+      includedFiles: [],
+      omittedFiles: [],
+      evidenceInventory: {},
+      totalIncludedChars: 0,
+      truncated: false
+    }, 'maintainability');
+
+    expect(prompt).toContain('one maintainability category');
   });
 });

@@ -240,7 +240,7 @@ export async function scoreRepo(
     return result;
   }
 
-  const prompt = buildPrompt(rubric, scan);
+  const prompt = buildPrompt(rubric, scan, evaluationMode);
 
   let raw: string;
   try {
@@ -329,7 +329,7 @@ async function scoreRepoByCategory(
       totalSteps: rubricDefinition.categories.length + 4
     });
     const bundle = buildCategoryEvidenceBundle(scan.files, category, scan);
-    const prompt = buildCategoryPrompt(rubric, rubricDefinition, category, scan, bundle);
+    const prompt = buildCategoryPrompt(rubric, rubricDefinition, category, scan, bundle, evaluationMode);
     const config = {
       ...llmConfig,
       responseFormat: llmConfig.responseFormat ? categoryResponseFormat(category) : undefined

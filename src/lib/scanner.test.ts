@@ -206,4 +206,135 @@ describe('scanRepo', () => {
     expect(result.evidence.eolRuntimeRisks).toEqual(['package.json engines.node references unsupported Node.js 20']);
     expect(result.evidence.hasSupportedCoreRuntime).toBe(false);
   });
+
+  it('uses common version files and Docker images for runtime support evidence', async () => {
+    const matrix: RuntimeSupportMatrix = {
+      version: 'test',
+      lastUpdated: '2026-06-26',
+      expiryDays: 60,
+      sources: ['official'],
+      entries: [
+        {
+          ecosystem: 'node',
+          versions: [
+            { major: '20', supported: false },
+            { major: '24', supported: true }
+          ]
+        },
+        {
+          ecosystem: 'python',
+          versions: [
+            { majorMinor: '3.9', supported: false },
+            { majorMinor: '3.13', supported: true }
+          ]
+        },
+        {
+          ecosystem: 'dotnet',
+          versions: [
+            { major: '7', supported: false },
+            { major: '10', supported: true }
+          ]
+        }
+      ]
+    };
+    await writeFile(join(repoDir, '.nvmrc'), '24\n');
+    await writeFile(join(repoDir, 'Dockerfile'), [
+      'FROM python:3.9-slim',
+      'FROM mcr.microsoft.com/dotnet/aspnet:10.0'
+    ].join('\n'));
+
+    const result = await scanRepo(repoDir, matrix);
+
+    expect(result.evidence.supportedRuntimeFiles).toEqual(['.nvmrc', 'Dockerfile']);
+    expect(result.evidence.eolRuntimeRisks).toEqual(['Dockerfile base image python:3.9-slim references unsupported Python 3.9']);
+    expect(result.evidence.hasSupportedCoreRuntime).toBe(false);
+  });
+
+  it('does not treat unknown runtime posture as supported', async () => {
+    const matrix: RuntimeSupportMatrix = {
+      version: 'test',
+      lastUpdated: '2026-06-26',
+      expiryDays: 60,
+      sources: ['official'],
+      entries: [{
+        ecosystem: 'node',
+        versions: [
+          { major: '24', supported: true }
+        ]
+      }]
+    };
+    await writeFile(join(repoDir, '.node-version'), '25\n');
+
+    const result = await scanRepo(repoDir, matrix);
+
+    expect(result.evidence.unknownRuntimeVersionFiles).toEqual(['.node-version']);
+    expect(result.evidence.hasSupportedCoreRuntime).toBe(false);
+  });
+
+  it('does not treat mixed supported and unknown runtime posture as supported', async () => {
+    const matrix: RuntimeSupportMatrix = {
+      version: 'test',
+      lastUpdated: '2026-06-26',
+      expiryDays: 60,
+      sources: ['official'],
+      entries: [{
+        ecosystem: 'node',
+        versions: [
+          { major: '24', supported: true }
+        ]
+      }]
+    };
+    await writeFile(join(repoDir, '.nvmrc'), '24\n');
+    await writeFile(join(repoDir, 'Dockerfile'), 'FROM node:25\n');
+
+    const result = await scanRepo(repoDir, matrix);
+
+    expect(result.evidence.supportedRuntimeFiles).toEqual(['.nvmrc']);
+    expect(result.evidence.unknownRuntimeVersionFiles).toEqual(['Dockerfile']);
+    expect(result.evidence.hasSupportedCoreRuntime).toBe(false);
+  });
+
+  it('treats supported runtime posture as supported when no risks or unknowns exist', async () => {
+    const matrix: RuntimeSupportMatrix = {
+      version: 'test',
+      lastUpdated: '2026-06-26',
+      expiryDays: 60,
+      sources: ['official'],
+      entries: [{
+        ecosystem: 'node',
+        versions: [
+          { major: '24', supported: true }
+        ]
+      }]
+    };
+    await writeFile(join(repoDir, '.nvmrc'), '24\n');
+
+    const result = await scanRepo(repoDir, matrix);
+
+    expect(result.evidence.supportedRuntimeFiles).toEqual(['.nvmrc']);
+    expect(result.evidence.unknownRuntimeVersionFiles).toEqual([]);
+    expect(result.evidence.hasSupportedCoreRuntime).toBe(true);
+  });
+
+  it('does not treat stale reference data as supported runtime posture', async () => {
+    const matrix: RuntimeSupportMatrix = {
+      version: 'test',
+      lastUpdated: '2020-01-01',
+      expiryDays: 30,
+      sources: ['official'],
+      entries: [{
+        ecosystem: 'node',
+        versions: [
+          { major: '24', supported: true }
+        ]
+      }]
+    };
+    await writeFile(join(repoDir, '.nvmrc'), '24\n');
+
+    const result = await scanRepo(repoDir, matrix);
+
+    expect(result.evidence.supportedRuntimeFiles).toEqual(['.nvmrc']);
+    expect(result.evidence.runtimeReferenceDataStale).toBe(true);
+    expect(result.evidence.hasSupportedCoreRuntime).toBe(false);
+  });
 });
