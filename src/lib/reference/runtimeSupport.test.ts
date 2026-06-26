@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readRuntimeSupportMatrix, validateRuntimeSupportMatrix } from './runtimeSupport';
+import { isRuntimeSupportMatrixStale, readRuntimeSupportMatrix, validateRuntimeSupportMatrix } from './runtimeSupport';
 
 describe('runtimeSupport', () => {
 	it('loads checked-in runtime support metadata with required source fields', async () => {
@@ -20,5 +20,18 @@ describe('runtimeSupport', () => {
 			sources: [],
 			entries: [{ ecosystem: 'node' }]
 		})).toThrow(/sources/);
+	});
+
+	it('detects stale checked-in support metadata from lastUpdated and expiryDays', () => {
+		const matrix = {
+			version: 'test',
+			lastUpdated: '2026-01-01',
+			expiryDays: 30,
+			sources: ['official'],
+			entries: [{ ecosystem: 'node' }]
+		};
+
+		expect(isRuntimeSupportMatrixStale(matrix, new Date('2026-01-20T00:00:00.000Z'))).toBe(false);
+		expect(isRuntimeSupportMatrixStale(matrix, new Date('2026-02-15T00:00:00.000Z'))).toBe(true);
 	});
 });

@@ -1,5 +1,6 @@
 import type { ScanResult } from './scanner';
 import type { RubricCategoryDefinition, RubricDefinition } from './rubricSchema';
+import type { EvaluationMode } from './types';
 
 export interface CategoryEvidenceBundle {
   includedFiles: { relativePath: string; content: string }[];
@@ -9,7 +10,8 @@ export interface CategoryEvidenceBundle {
   truncated: boolean;
 }
 
-export function buildPrompt(rubric: string, scan: ScanResult): string {
+export function buildPrompt(rubric: string, scan: ScanResult, evaluationMode: EvaluationMode = 'ai-readiness'): string {
+  const modeLabel = evaluationMode === 'maintainability' ? 'Maintainability' : 'Agentic Repository Maturity';
   const fileSection =
     scan.files.length === 0
       ? 'No agent-related files found in this repository.'
@@ -18,7 +20,7 @@ export function buildPrompt(rubric: string, scan: ScanResult): string {
           .join('\n\n');
   const evidenceSection = JSON.stringify(scan.evidence, null, 2);
 
-  return `You are evaluating a software repository against the Agentic Repository Maturity Guide below.
+  return `You are evaluating a software repository against the ${modeLabel} Guide below.
 
 ## RUBRIC
 
@@ -89,8 +91,10 @@ export function buildCategoryPrompt(
   rubricDefinition: RubricDefinition,
   category: RubricCategoryDefinition,
   scan: ScanResult,
-  bundle: CategoryEvidenceBundle
+  bundle: CategoryEvidenceBundle,
+  evaluationMode: EvaluationMode = 'ai-readiness'
 ): string {
+  const modeLabel = evaluationMode === 'maintainability' ? 'maintainability' : 'repository maturity';
   const fileSection =
     bundle.includedFiles.length === 0
       ? 'No evidence file contents were included for this category.'
@@ -108,7 +112,7 @@ export function buildCategoryPrompt(
         .join('\n');
 
   void rubric;
-  return `You are evaluating one repository maturity category using a bounded evidence chunk.
+  return `You are evaluating one ${modeLabel} category using a bounded evidence chunk.
 
 ## CATEGORY TO SCORE
 

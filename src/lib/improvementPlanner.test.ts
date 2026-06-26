@@ -238,6 +238,21 @@ describe('exportImprovementPlanToRepo', () => {
 		const content = await readFile(join(repoDir, 'AGENTS.md'), 'utf-8');
 		expect(content.match(/\.agent\/improvement-plan\.md/g)?.length).toBe(1);
 	});
+
+	it('points AGENTS.md at mode-specific exported improvement plans', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-export-'));
+		const parsed = {
+			...parseImprovementPlan(JSON.stringify(plan), 'repo-scorer', score),
+			evaluationMode: 'maintainability' as const
+		};
+
+		const result = await exportImprovementPlanToRepo(repoDir, parsed);
+
+		expect(result.planPath).toBe('.agent/improvement-plan-maintainability.md');
+		const content = await readFile(join(repoDir, 'AGENTS.md'), 'utf-8');
+		expect(content).toContain('.agent/improvement-plan-maintainability.md');
+		expect(content).not.toContain('.agent/improvement-plan.md`');
+	});
 });
 
 describe('generateImprovementPlan', () => {
@@ -340,6 +355,79 @@ describe('generateImprovementPlan', () => {
 
 		expect(vi.mocked(callLLM).mock.calls[0][1]).toContain('VALIDATION COMMAND CANDIDATES');
 		expect(vi.mocked(callLLM).mock.calls[0][1]).toContain('dotnet test AiAppTriage.slnx');
+	});
+
+	it('uses maintainability-specific plan hints for maintainability mode', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		await writeFile(join(repoDir, 'README.md'), '# Repo\n');
+		await writeFile(join(repoDir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest --run' } }));
+		const maintainabilityScore: ScoreResult = {
+			...score,
+			evaluationMode: 'maintainability',
+			band: 'Basic',
+			categories: {
+				verification_coverage: 3,
+				runtime_dependency_health: 2,
+				documentation_onboarding: 1
+			}
+		};
+		const maintainabilityPlan = {
+			summary: 'Improve maintainability by strengthening tests, runtime documentation, and onboarding checks around files that already exist in the repository.',
+			strongestCategories: ['verification_coverage'],
+			weakestCategories: ['runtime_dependency_health', 'documentation_onboarding'],
+			prioritizedTasks: [
+				{
+					title: 'Document supported runtime policy',
+					category: 'runtime_dependency_health',
+					impact: 'high',
+					effort: 'low',
+					targetFiles: ['README.md'],
+					instructions: 'Update README.md with the supported runtime policy, dependency update expectations, and the command maintainers should run before accepting runtime changes.',
+					acceptanceCriteria: ['README.md names supported runtime expectations', 'README.md documents a validation command'],
+					validationCommands: ['grep -q "runtime" README.md']
+				},
+				{
+					title: 'Expose package validation command',
+					category: 'verification_coverage',
+					impact: 'medium',
+					effort: 'low',
+					targetFiles: ['package.json'],
+					instructions: 'Ensure package.json exposes a test or check script that maintainers can run locally before merging routine changes.',
+					acceptanceCriteria: ['package.json includes a validation script', 'The validation script is documented in the plan'],
+					validationCommands: ['npm run test']
+				},
+				{
+					title: 'Improve onboarding checklist',
+					category: 'documentation_onboarding',
+					impact: 'medium',
+					effort: 'low',
+					targetFiles: ['README.md'],
+					instructions: 'Add a concise onboarding checklist to README.md covering install, test, build, and troubleshooting expectations for maintainers.',
+					acceptanceCriteria: ['README.md includes onboarding steps', 'Troubleshooting or validation guidance is present'],
+					validationCommands: ['grep -q "onboarding" README.md']
+				}
+			]
+		};
+		vi.mocked(callLLM).mockResolvedValue(JSON.stringify(maintainabilityPlan));
+
+		await generateImprovementPlan(
+			'repo-scorer',
+			repoDir,
+			'rubric',
+			maintainabilityScore,
+			{ baseUrl: 'http://localhost:8080' },
+			join(outDir, 'improvement-plans.json'),
+			'generic',
+			'maintainability'
+		);
+
+		const prompt = vi.mocked(callLLM).mock.calls[0][1];
+		expect(prompt).toContain('A good maintainability plan often has one task that strengthens tests');
+		expect(prompt).toContain('existing tests, package scripts, CI workflow files, README.md');
+		expect(prompt).not.toContain('creates scoped rules for a real source');
+		expect(prompt).not.toContain('.agent/rules/repo-guidance.md');
+		expect(prompt).not.toContain('"scoped_rules"');
 	});
 
 	it('repairs plans that reference nonexistent repo paths', async () => {
