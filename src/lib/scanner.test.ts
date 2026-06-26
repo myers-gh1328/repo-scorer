@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { scanRepo } from './scanner';
+import type { RuntimeSupportMatrix } from './reference/runtimeSupport';
 
 describe('scanRepo', () => {
   let repoDir: string;
@@ -180,5 +181,29 @@ describe('scanRepo', () => {
     expect(result.evidence.runtimeFiles).toContain('package.json');
     expect(result.evidence.hasCommittedSecretRisk).toBe(true);
     expect(result.evidence.secretRiskFiles).toContain('service.credentials.json');
+  });
+
+  it('uses checked-in runtime support data to flag unsupported runtime versions', async () => {
+    const matrix: RuntimeSupportMatrix = {
+      version: 'test',
+      lastUpdated: '2026-06-26',
+      expiryDays: 60,
+      sources: ['official'],
+      entries: [{
+        ecosystem: 'node',
+        versions: [
+          { major: '20', supported: false },
+          { major: '24', supported: true }
+        ]
+      }]
+    };
+    await writeFile(join(repoDir, 'package.json'), JSON.stringify({
+      engines: { node: '20.x' }
+    }));
+
+    const result = await scanRepo(repoDir, matrix);
+
+    expect(result.evidence.eolRuntimeRisks).toEqual(['package.json engines.node references unsupported Node.js 20']);
+    expect(result.evidence.hasSupportedCoreRuntime).toBe(false);
   });
 });

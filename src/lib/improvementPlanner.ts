@@ -187,9 +187,10 @@ function normalizeImprovementPlan(value: unknown, repoName: string, score: Score
 	if (!isRecord(value)) {
 		throw new Error('Improvement plan must be an object');
 	}
-	const prioritizedTasks = normalizeTasks(value.prioritizedTasks)
-		.concat(normalizeTasks(value.tasks))
-		.concat(normalizeTasks(value.recommendations));
+	const allowedCategories = Object.keys(score.categories ?? {});
+	const prioritizedTasks = normalizeTasks(value.prioritizedTasks, allowedCategories)
+		.concat(normalizeTasks(value.tasks, allowedCategories))
+		.concat(normalizeTasks(value.recommendations, allowedCategories));
 	if (prioritizedTasks.length === 0) {
 		throw new Error('Improvement plan must include at least one task');
 	}
@@ -208,8 +209,8 @@ function normalizeImprovementPlan(value: unknown, repoName: string, score: Score
 		summary,
 		currentScore: score.score,
 		currentBand: score.band,
-		strongestCategories: normalizeCategoryList(value.strongestCategories),
-		weakestCategories: normalizeCategoryList(value.weakestCategories),
+		strongestCategories: normalizeCategoryList(value.strongestCategories, allowedCategories),
+		weakestCategories: normalizeCategoryList(value.weakestCategories, allowedCategories),
 		prioritizedTasks,
 		markdown: ''
 	};
@@ -443,13 +444,13 @@ function isVendorSpecificPath(file: string): boolean {
 		|| file.startsWith('.github/prompts/');
 }
 
-function normalizeTasks(value: unknown): ImprovementTask[] {
+function normalizeTasks(value: unknown, allowedCategories: string[]): ImprovementTask[] {
 	if (!Array.isArray(value)) return [];
 	return value
 		.map((item): ImprovementTask | null => {
 			if (!isRecord(item)) return null;
 			const title = stringValue(item.title);
-			const category = categoryValue(item.category);
+			const category = categoryValue(item.category, allowedCategories);
 			const instructions = stringValue(item.instructions);
 			if (!title || !category || !instructions) return null;
 			return {
@@ -550,7 +551,7 @@ function renderImprovementMarkdown(plan: ImprovementPlan): string {
 		lines.push(
 			'',
 			`### ${index + 1}. ${task.title}`,
-			`Category: ${CATEGORY_LABELS[task.category]}`,
+			`Category: ${CATEGORY_LABELS[task.category] ?? task.category}`,
 			`Impact: ${task.impact}`,
 			`Effort: ${task.effort}`,
 			'',
@@ -752,13 +753,13 @@ Original model output to repair:
 ${raw}`;
 }
 
-function normalizeCategoryList(value: unknown): string[] {
+function normalizeCategoryList(value: unknown, allowedCategories: string[]): string[] {
 	if (!Array.isArray(value)) return [];
-	return value.map(categoryValue).filter((item): item is string => Boolean(item));
+	return value.map(item => categoryValue(item, allowedCategories)).filter((item): item is string => Boolean(item));
 }
 
-function categoryValue(value: unknown): string | null {
-	return typeof value === 'string' && CATEGORY_KEYS.includes(value)
+function categoryValue(value: unknown, allowedCategories = CATEGORY_KEYS): string | null {
+	return typeof value === 'string' && allowedCategories.includes(value)
 		? value
 		: null;
 }

@@ -8,6 +8,7 @@ import { updateScoringProgress, withScoreWriteLock } from './server/scoreConcurr
 import { appendScoreHistory } from './scoreHistory';
 import { CATEGORY_MAX, DEFAULT_EVALUATION_MODE, bandForScore } from './types';
 import { storage } from './server/storage';
+import type { RuntimeSupportMatrix } from './reference/runtimeSupport';
 import type { CategoryRationale, CategoryRationales, CategoryScores, EvaluationMode, LLMConfig, LLMResponseFormat, ScoreResult, ScoresStore, StructuredGap } from './types';
 import type { RubricCategoryDefinition, RubricDefinition } from './rubricSchema';
 
@@ -188,8 +189,9 @@ export async function scoreRepo(
   rubricDefinition?: RubricDefinition,
   historyPath?: string,
   evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE,
-  metadata: Pick<ScoreResult, 'referenceDataVersion' | 'referenceDataLastUpdated' | 'scannerEvidenceVersion'> = {}
+  metadata: Pick<ScoreResult, 'referenceDataVersion' | 'referenceDataLastUpdated' | 'scannerEvidenceVersion'> & { runtimeSupport?: RuntimeSupportMatrix } = {}
 ): Promise<ScoreResult> {
+  const { runtimeSupport, ...scoreMetadata } = metadata;
   updateScoringProgress(name, {
     evaluationMode,
     phase: 'scan',
@@ -197,7 +199,7 @@ export async function scoreRepo(
     currentStep: 0,
     totalSteps: rubricDefinition ? rubricDefinition.categories.length + 4 : 4
   });
-  const scan = await scanRepo(repoPath);
+  const scan = await scanRepo(repoPath, runtimeSupport);
   if (rubricDefinition) {
     let result = await scoreRepoByCategory(rubricDefinition, rubric, scan, llmConfig, name, evaluationMode);
     updateScoringProgress(name, {
@@ -218,7 +220,7 @@ export async function scoreRepo(
       totalSteps: rubricDefinition.categories.length + 4
     });
     result = applyConsistencyChecks(result, scan.evidence, rubricDefinition);
-    result = { ...result, ...metadata };
+    result = { ...result, ...scoreMetadata };
     result.scoredAt = new Date().toISOString();
     updateScoringProgress(name, {
       evaluationMode,
@@ -264,7 +266,7 @@ export async function scoreRepo(
   }
 
   result = applyEvidenceCaps(result, scan.evidence);
-  result = { ...result, ...metadata };
+  result = { ...result, ...scoreMetadata };
   result.scoredAt = new Date().toISOString();
 
   updateScoringProgress(name, {

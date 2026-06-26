@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resetStorageForTests, storage } from './storage';
+import Database from 'better-sqlite3';
+import { resetStorageForTests, Storage, storage } from './storage';
 import type { ImprovementPlan, RepoConfig, ScoreResult } from '$lib/types';
 
 let dir: string;
@@ -148,6 +149,86 @@ describe('storage', () => {
 		expect((await store.getScoreHistory('repo-a', 'maintainability'))?.full.at(-1)).toMatchObject({ score: 81 });
 		expect(await store.getImprovementPlan('repo-a')).toMatchObject({ currentScore: 72, evaluationMode: 'ai-readiness' });
 		expect(await store.getImprovementPlan('repo-a', 'maintainability')).toMatchObject({ currentScore: 81, evaluationMode: 'maintainability' });
+	});
+
+	it('migrates old single-mode SQLite scores and plans to ai-readiness composite keys', async () => {
+		const repoPath = await makeGitRepo('repo-a');
+		const dbPath = join(dir, 'old.sqlite');
+		const db = new Database(dbPath);
+		db.exec(`
+			CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+			CREATE TABLE repos (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL UNIQUE,
+				path TEXT NOT NULL UNIQUE,
+				canonical_path TEXT NOT NULL,
+				visibility TEXT,
+				open_source INTEGER NOT NULL DEFAULT 0,
+				allow_plan_export INTEGER NOT NULL DEFAULT 0,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			);
+			CREATE TABLE scores (
+				repo_id INTEGER PRIMARY KEY REFERENCES repos(id) ON DELETE CASCADE,
+				scored_at TEXT NOT NULL,
+				result_version INTEGER,
+				rubric_version TEXT,
+				final_score INTEGER NOT NULL,
+				final_band TEXT NOT NULL,
+				result_json TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			);
+			CREATE TABLE score_history (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+				scored_at TEXT NOT NULL,
+				compact_json TEXT,
+				full_json TEXT
+			);
+			CREATE TABLE improvement_plans (
+				repo_id INTEGER PRIMARY KEY REFERENCES repos(id) ON DELETE CASCADE,
+				source_repo_path TEXT NOT NULL,
+				generated_at TEXT NOT NULL,
+				exported_at TEXT,
+				exported_plan_path TEXT,
+				exported_agents_path TEXT,
+				plan_json TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			);
+		`);
+		db.prepare('INSERT INTO repos (id, name, path, canonical_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(1, 'repo-a', repoPath, repoPath, 'now', 'now');
+		db.prepare('INSERT INTO scores (repo_id, scored_at, result_version, rubric_version, final_score, final_band, result_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(1, '2026-06-25T12:00:00.000Z', 2, '1.0', 72, 'Operational', JSON.stringify(score()), 'now');
+		db.prepare('INSERT INTO score_history (repo_id, scored_at, compact_json, full_json) VALUES (?, ?, ?, ?)').run(1, '2026-06-25T12:00:00.000Z', null, JSON.stringify(score()));
+		db.prepare('INSERT INTO improvement_plans (repo_id, source_repo_path, generated_at, plan_json, updated_at) VALUES (?, ?, ?, ?, ?)').run(1, repoPath, '2026-06-25T12:30:00.000Z', JSON.stringify(plan('repo-a', repoPath)), 'now');
+		db.close();
+
+		const store = new Storage(dbPath);
+		try {
+			expect(store.getScore('repo-a')).toMatchObject({ score: 72, evaluationMode: 'ai-readiness' });
+			expect(store.getScore('repo-a', 'maintainability')).toBeNull();
+			expect(store.getImprovementPlan('repo-a')).toMatchObject({ evaluationMode: 'ai-readiness' });
+			await store.saveScoreWithHistory('repo-a', { ...score('2026-06-25T13:00:00.000Z', 80), categories: { verification_coverage: 10 } }, 'maintainability');
+			expect(store.getScore('repo-a')).toMatchObject({ score: 72 });
+			expect(store.getScore('repo-a', 'maintainability')).toMatchObject({ score: 80 });
+		} finally {
+			store.close();
+		}
+	});
+
+	it('fails closed when stored JSON evaluation mode conflicts with the row mode', async () => {
+		const repoPath = await makeGitRepo('repo-a');
+		const store = storage();
+		await store.addRepo({ name: 'repo-a', path: repoPath });
+		await store.saveScoreWithHistory('repo-a', { ...score(), evaluationMode: 'ai-readiness' }, 'ai-readiness');
+		store.close();
+		resetStorageForTests();
+
+		const db = new Database(process.env.REPO_SCORER_DB_PATH);
+		db.prepare('UPDATE scores SET evaluation_mode = ? WHERE evaluation_mode = ?').run('maintainability', 'ai-readiness');
+		db.close();
+
+		const reopened = storage();
+		expect(() => reopened.getScore('repo-a', 'maintainability')).toThrow(/EVALUATION_MODE_MISMATCH/);
 	});
 
 	it('rolls back score persistence when history insertion fails', async () => {

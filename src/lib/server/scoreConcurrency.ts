@@ -70,9 +70,10 @@ export function isAnyScoring(): boolean {
 	return activeScores.size > 0;
 }
 
-export function getScoringJobs(): ScoreJobStatus[] {
+export function getScoringJobs(evaluationMode?: EvaluationMode): ScoreJobStatus[] {
 	const now = Date.now();
 	return [...activeScores.values()]
+		.filter(job => !evaluationMode || job.evaluationMode === evaluationMode)
 		.sort((a, b) => a.startedAtMs - b.startedAtMs || a.repoName.localeCompare(b.repoName))
 		.map(job => {
 			const elapsedMs = Math.max(0, now - job.startedAtMs);
@@ -92,8 +93,8 @@ export function getScoringJobs(): ScoreJobStatus[] {
 		});
 }
 
-export function clearStaleScoringJobs(): string[] {
-	const staleJobs = getScoringJobs().filter(job => job.status === 'stale');
+export function clearStaleScoringJobs(evaluationMode?: EvaluationMode): string[] {
+	const staleJobs = getScoringJobs(evaluationMode).filter(job => job.status === 'stale');
 	for (const job of staleJobs) {
 		activeScores.delete(jobKey(job.repoName, job.evaluationMode));
 	}
