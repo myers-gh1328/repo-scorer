@@ -1,9 +1,12 @@
+import { DEFAULT_EVALUATION_MODE, type EvaluationMode } from '$lib/types';
+
 export const SCORE_JOB_STALE_AFTER_MS = 10 * 60 * 1000;
 
 export type ScoreJobPhase = 'scan' | 'category' | 'caps' | 'consistency' | 'persist' | 'complete';
 
 export interface ScoreJobStatus {
 	repoName: string;
+	evaluationMode: EvaluationMode;
 	status: 'running' | 'stale';
 	startedAt: string;
 	elapsedMs: number;
@@ -17,6 +20,7 @@ export interface ScoreJobStatus {
 
 interface ActiveScoreJob {
 	repoName: string;
+	evaluationMode: EvaluationMode;
 	startedAtMs: number;
 	startedAt: string;
 	phase: ScoreJobPhase;
@@ -28,10 +32,12 @@ interface ActiveScoreJob {
 const activeScores = new Map<string, ActiveScoreJob>();
 let scoreWriteQueue: Promise<void> = Promise.resolve();
 
-export function beginScoring(repoName: string): boolean {
-	if (activeScores.has(repoName)) return false;
-	activeScores.set(repoName, {
+export function beginScoring(repoName: string, evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE): boolean {
+	const key = jobKey(repoName, evaluationMode);
+	if (activeScores.has(key)) return false;
+	activeScores.set(key, {
 		repoName,
+		evaluationMode,
 		startedAtMs: Date.now(),
 		startedAt: new Date().toISOString(),
 		phase: 'scan',
@@ -44,18 +50,20 @@ export function beginScoring(repoName: string): boolean {
 
 export function updateScoringProgress(
 	repoName: string,
-	progress: Partial<Pick<ActiveScoreJob, 'phase' | 'phaseLabel' | 'currentStep' | 'totalSteps'>>
+	progress: Partial<Pick<ActiveScoreJob, 'phase' | 'phaseLabel' | 'currentStep' | 'totalSteps'>> & { evaluationMode?: EvaluationMode }
 ): void {
-	const job = activeScores.get(repoName);
+	const evaluationMode = progress.evaluationMode ?? DEFAULT_EVALUATION_MODE;
+	const key = jobKey(repoName, evaluationMode);
+	const job = activeScores.get(key);
 	if (!job) return;
-	activeScores.set(repoName, {
+	activeScores.set(key, {
 		...job,
 		...progress
 	});
 }
 
-export function finishScoring(repoName: string): void {
-	activeScores.delete(repoName);
+export function finishScoring(repoName: string, evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE): void {
+	activeScores.delete(jobKey(repoName, evaluationMode));
 }
 
 export function isAnyScoring(): boolean {
@@ -70,6 +78,7 @@ export function getScoringJobs(): ScoreJobStatus[] {
 			const elapsedMs = Math.max(0, now - job.startedAtMs);
 			return {
 				repoName: job.repoName,
+				evaluationMode: job.evaluationMode,
 				status: elapsedMs > SCORE_JOB_STALE_AFTER_MS ? 'stale' : 'running',
 				startedAt: job.startedAt,
 				elapsedMs,
@@ -86,9 +95,13 @@ export function getScoringJobs(): ScoreJobStatus[] {
 export function clearStaleScoringJobs(): string[] {
 	const staleJobs = getScoringJobs().filter(job => job.status === 'stale');
 	for (const job of staleJobs) {
-		activeScores.delete(job.repoName);
+		activeScores.delete(jobKey(job.repoName, job.evaluationMode));
 	}
 	return staleJobs.map(job => job.repoName);
+}
+
+function jobKey(repoName: string, evaluationMode: EvaluationMode): string {
+	return `${repoName}:${evaluationMode}`;
 }
 
 function percent(currentStep: number, totalSteps: number): number {

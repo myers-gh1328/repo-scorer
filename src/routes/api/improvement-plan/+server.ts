@@ -1,9 +1,9 @@
 import type { RequestHandler } from './$types';
 import { error, json } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { readAppSettings } from '$lib/server/appSettings';
 import { isGitRepo, readRepoConfig } from '$lib/server/repoConfig';
+import { parseEvaluationMode, readEvaluationRubric } from '$lib/evaluationModes';
 import {
 	assertImprovementPlanExportAllowed,
 	exportImprovementPlanToRepo,
@@ -14,13 +14,12 @@ import { improvementPlanResponseFormat } from '$lib/responseSchemas';
 import { storage } from '$lib/server/storage';
 import type { RepoConfig } from '$lib/types';
 
-const RUBRIC_PATH = 'rubric.md';
-
 export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json().catch(() => null);
 	const name = typeof body?.name === 'string' ? body.name : '';
 	const path = typeof body?.path === 'string' ? body.path : '';
 	const action = typeof body?.action === 'string' ? body.action : 'generate';
+	const mode = parseEvaluationMode(body?.mode);
 
 	if (!name || !path) {
 		throw error(400, 'Request body must include name and path strings');
@@ -36,9 +35,12 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	if (action === 'export') {
-		const plan = storage().getImprovementPlan(name);
+		const plan = storage().getImprovementPlan(name, mode);
 		if (!plan) {
 			throw error(400, 'Generate an improvement plan before exporting it');
+		}
+		if (plan.evaluationMode && plan.evaluationMode !== mode) {
+			throw error(409, 'Stored improvement plan belongs to a different evaluation mode');
 		}
 		try {
 			assertImprovementPlanExportAllowed(repo);
@@ -56,23 +58,21 @@ export const POST: RequestHandler = async ({ request }) => {
 			throw error(409, 'Generated plan belongs to a different repo path. Regenerate the plan before exporting.');
 		}
 		const exported = await exportImprovementPlanToRepo(path, plan);
-		return json({ ...(await markImprovementPlanExported(undefined, name, exported)), exported });
+		return json({ ...(await markImprovementPlanExported(undefined, name, exported, mode)), exported });
 	}
 
 	if (action !== 'generate') {
 		throw error(400, 'Unsupported improvement plan action');
 	}
 
-	let rubric: string;
-	try {
-		rubric = await readFile(RUBRIC_PATH, 'utf-8');
-	} catch {
-		throw error(500, 'rubric.md not found in project root');
-	}
+	const { markdown: rubric } = await readEvaluationRubric(mode);
 
-	const score = storage().getScore(name);
+	const score = storage().getScore(name, mode);
 	if (!score) {
 		throw error(400, 'Score this repo before generating an improvement plan');
+	}
+	if (score.evaluationMode && score.evaluationMode !== mode) {
+		throw error(409, 'Stored score belongs to a different evaluation mode');
 	}
 
 	const { llmBaseUrl, llmModel, aiTooling, useJsonSchema } = await readAppSettings();
@@ -82,7 +82,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			model: llmModel,
 			maxTokens: 4096,
 			responseFormat: useJsonSchema ? improvementPlanResponseFormat : undefined
-		}, undefined, aiTooling);
+		}, undefined, aiTooling, mode);
 		return json(plan);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);

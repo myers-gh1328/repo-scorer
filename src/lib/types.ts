@@ -6,21 +6,7 @@ export interface RepoConfig {
   allowPlanExport?: boolean;
 }
 
-export interface CategoryScores {
-  [key: string]: number;
-  persistent_guidance: number;
-  scoped_rules: number;
-  skills: number;
-  specialized_agents: number;
-  tool_manifests_mcp: number;
-  validation_reproducibility: number;
-  ci_pr_automation: number;
-  security_sandboxing_hooks: number;
-  domain_context: number;
-  governance_observability: number;
-  versioning_provenance: number;
-  onboarding_discoverability: number;
-}
+export type CategoryScores = Record<string, number>;
 
 export interface StructuredGap {
   description: string;
@@ -35,10 +21,10 @@ export interface CategoryRationale {
   structuredGaps?: StructuredGap[];
 }
 
-export type CategoryRationales = Partial<Record<keyof CategoryScores, CategoryRationale>>;
+export type CategoryRationales = Record<string, CategoryRationale | undefined>;
 
 export interface AppliedScoreCap {
-  category: keyof CategoryScores;
+  category: string;
   originalScore: number;
   cappedScore: number;
   maxScore: number;
@@ -64,7 +50,7 @@ export interface ConsistencyCheckResult {
   impact: ConsistencyCheckImpact;
 }
 
-export const CATEGORY_MAX: CategoryScores = {
+export const CATEGORY_MAX: Record<string, number> = {
   persistent_guidance: 15,
   scoped_rules: 10,
   skills: 10,
@@ -79,7 +65,7 @@ export const CATEGORY_MAX: CategoryScores = {
   onboarding_discoverability: 2
 };
 
-export const CATEGORY_LABELS: Record<keyof CategoryScores, string> = {
+export const CATEGORY_LABELS: Record<string, string> = {
   persistent_guidance: 'Persistent Guidance',
   scoped_rules: 'Scoped Rules',
   skills: 'Skills',
@@ -97,8 +83,12 @@ export const CATEGORY_LABELS: Record<keyof CategoryScores, string> = {
 export type HealthBand = string;
 
 export interface ScoreResult {
+  evaluationMode?: EvaluationMode;
   resultVersion?: number;
   rubricVersion?: string;
+  scannerEvidenceVersion?: string;
+  referenceDataVersion?: string;
+  referenceDataLastUpdated?: string;
   scoredAt: string;
   modelScore?: number;
   cappedScore?: number;
@@ -125,6 +115,7 @@ export interface ScoresStore {
 }
 
 export interface ScoreHistoryEntry {
+  evaluationMode?: EvaluationMode;
   scoredAt: string;
   rubricVersion?: string;
   resultVersion?: number;
@@ -148,7 +139,7 @@ export interface ScoreHistoryStore {
 
 export interface ImprovementTask {
   title: string;
-  category: keyof CategoryScores;
+  category: string;
   impact: 'high' | 'medium' | 'low';
   effort: 'high' | 'medium' | 'low';
   targetFiles: string[];
@@ -158,6 +149,7 @@ export interface ImprovementTask {
 }
 
 export interface ImprovementPlan {
+  evaluationMode?: EvaluationMode;
   generatedAt: string;
   exportedAt?: string;
   exportedPlanPath?: string;
@@ -169,8 +161,8 @@ export interface ImprovementPlan {
   summary: string;
   currentScore: number;
   currentBand: HealthBand;
-  strongestCategories: (keyof CategoryScores)[];
-  weakestCategories: (keyof CategoryScores)[];
+  strongestCategories: string[];
+  weakestCategories: string[];
   prioritizedTasks: ImprovementTask[];
   markdown: string;
 }
@@ -193,6 +185,10 @@ export interface LLMResponseFormat {
     schema: Record<string, unknown>;
   };
 }
+
+export type EvaluationMode = 'ai-readiness' | 'maintainability';
+
+export const DEFAULT_EVALUATION_MODE: EvaluationMode = 'ai-readiness';
 
 export function bandForScore(score: number): HealthBand {
   if (score >= 90) return 'Mature';

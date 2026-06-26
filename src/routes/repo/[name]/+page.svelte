@@ -14,6 +14,7 @@
   let initializedExportState = $state(false);
   let copied = $state(false);
   const actionsDisabled = $derived(rescoring);
+  const modeQuery = $derived(`?mode=${data.mode}`);
 
   $effect(() => {
     if (!initializedExportState) {
@@ -29,7 +30,7 @@
       const res = await fetch('/api/score', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: data.name, path: data.repoPath })
+        body: JSON.stringify({ name: data.name, path: data.repoPath, mode: data.mode })
       });
 
       if (!res.ok) {
@@ -55,7 +56,7 @@
       const res = await fetch('/api/improvement-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: data.name, path: data.repoPath })
+        body: JSON.stringify({ name: data.name, path: data.repoPath, mode: data.mode })
       });
 
       if (!res.ok) {
@@ -85,7 +86,7 @@
       const res = await fetch('/api/improvement-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'export', name: data.name, path: data.repoPath })
+        body: JSON.stringify({ action: 'export', name: data.name, path: data.repoPath, mode: data.mode })
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
@@ -129,11 +130,16 @@
 </script>
 
 <main>
-  <a class="back-link" href="/">← Dashboard</a>
+  <a class="back-link" href="/{modeQuery}">← Dashboard</a>
 
   <div style="display:flex; justify-content:space-between; align-items:center; margin: 1.5rem 0 1rem; gap: 0.75rem;">
     <h1 style="margin:0">{data.name}</h1>
     <div class="button-row">
+      {#each data.modes as mode}
+        <a class="button-link" class:disabled-link={mode.id === data.mode} href={`/repo/${data.name}?mode=${mode.id}`}>
+          {mode.label}{mode.beta ? ' beta' : ''}
+        </a>
+      {/each}
       <button onclick={rescore} disabled={actionsDisabled}>
         {rescoring ? 'Scoring…' : 'Re-score'}
       </button>

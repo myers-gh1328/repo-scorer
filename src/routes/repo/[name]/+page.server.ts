@@ -1,12 +1,13 @@
 import type { PageServerLoad } from './$types';
 import { error } from '@sveltejs/kit';
 import { readRepoConfig } from '$lib/server/repoConfig';
-import { readRubricDefinition } from '$lib/rubricSchema';
 import { storage } from '$lib/server/storage';
+import { evaluationModeDefinition, listEvaluationModes, parseEvaluationMode, readEvaluationRubric } from '$lib/evaluationModes';
 import type { RepoConfig } from '$lib/types';
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, url }) => {
   const { name } = params;
+  const mode = parseEvaluationMode(url.searchParams.get('mode'));
 
   const repos: RepoConfig[] = await readRepoConfig();
   const repo = repos.find(r => r.name === name);
@@ -15,11 +16,11 @@ export const load: PageServerLoad = async ({ params }) => {
     throw error(404, `Repo "${name}" not found in repos.config.json`);
   }
 
-  const result = storage().getScore(name);
-  const improvementPlan = storage().getImprovementPlan(name);
-  const scoreHistory = storage().getScoreHistory(name);
+  const result = storage().getScore(name, mode);
+  const improvementPlan = storage().getImprovementPlan(name, mode);
+  const scoreHistory = storage().getScoreHistory(name, mode);
 
-  const rubricDefinition = await readRubricDefinition();
+  const { definition: rubricDefinition } = await readEvaluationRubric(mode);
   const rubric = {
     version: rubricDefinition.version,
     totalScore: rubricDefinition.totalScore,
@@ -28,5 +29,5 @@ export const load: PageServerLoad = async ({ params }) => {
     categoryLabels: rubricDefinition.categoryLabels
   };
 
-  return { name, repoPath: repo.path, result, improvementPlan, scoreHistory, rubric };
+  return { name, repoPath: repo.path, result, improvementPlan, scoreHistory, rubric, mode, modeDefinition: evaluationModeDefinition(mode), modes: listEvaluationModes() };
 };

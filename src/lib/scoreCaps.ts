@@ -4,7 +4,7 @@ import type { EvidenceInventory } from './scanner';
 import type { RubricDefinition } from './rubricSchema';
 
 interface ScoreCapRule {
-  category: keyof CategoryScores;
+  category: string;
   maxScore: number;
   reason: string;
   applies: (evidence: EvidenceInventory) => boolean;
@@ -68,10 +68,10 @@ export function applyEvidenceCaps(result: ScoreResult, evidence: EvidenceInvento
     }
   }
 
-  const score = Object.values(categories).reduce((sum, value) => sum + value, 0);
+  const score = Object.values(categories).reduce((sum, value) => sum + (value ?? 0), 0);
   return {
     ...result,
-    rawScore: result.rawScore ?? Object.values(rawCategories).reduce((sum, value) => sum + value, 0),
+    rawScore: result.rawScore ?? Object.values(rawCategories).reduce((sum, value) => sum + (value ?? 0), 0),
     rawCategories,
     categories,
     appliedCaps,

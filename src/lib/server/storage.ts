@@ -13,6 +13,7 @@ import type {
 	ScoreResult,
 	ScoresStore
 } from '$lib/types';
+import { DEFAULT_EVALUATION_MODE, type EvaluationMode } from '$lib/types';
 
 const DEFAULT_DB_PATH = 'repo-scorer.sqlite';
 const JSON_IMPORT_MIGRATION = 2;
@@ -111,34 +112,36 @@ export class Storage {
 		this.db.prepare('DELETE FROM repos WHERE path = ?').run(path);
 	}
 
-	getScoresStore(): ScoresStore {
+	getScoresStore(mode: EvaluationMode = DEFAULT_EVALUATION_MODE): ScoresStore {
 		const rows = this.db.prepare(`
 			SELECT repos.name AS name, scores.result_json AS resultJson
 			FROM scores
 			JOIN repos ON repos.id = scores.repo_id
+			WHERE scores.evaluation_mode = ?
 			ORDER BY repos.name
-		`).all() as { name: string; resultJson: string }[];
-		return Object.fromEntries(rows.map(row => [row.name, JSON.parse(row.resultJson)]));
+		`).all(mode) as { name: string; resultJson: string }[];
+		return Object.fromEntries(rows.map(row => [row.name, normalizeMode(JSON.parse(row.resultJson), mode)]));
 	}
 
-	getScore(repoName: string): ScoreResult | null {
+	getScore(repoName: string, mode: EvaluationMode = DEFAULT_EVALUATION_MODE): ScoreResult | null {
 		const row = this.db.prepare(`
 			SELECT scores.result_json AS resultJson
 			FROM scores
 			JOIN repos ON repos.id = scores.repo_id
-			WHERE repos.name = ?
-		`).get(repoName) as { resultJson: string } | undefined;
-		return row ? JSON.parse(row.resultJson) : null;
+			WHERE repos.name = ? AND scores.evaluation_mode = ?
+		`).get(repoName, mode) as { resultJson: string } | undefined;
+		return row ? normalizeMode(JSON.parse(row.resultJson), mode) : null;
 	}
 
-	saveScoreWithHistory(repoName: string, result: ScoreResult): void {
-		const compact = this.compactHistoryEntryForTest(result);
+	saveScoreWithHistory(repoName: string, result: ScoreResult, mode: EvaluationMode = result.evaluationMode ?? DEFAULT_EVALUATION_MODE): void {
+		const nextResult = { ...result, evaluationMode: mode };
+		const compact = this.compactHistoryEntryForTest(nextResult);
 		const write = this.db.transaction(() => {
 			const repoId = this.repoId(repoName);
 			this.db.prepare(`
-				INSERT INTO scores (repo_id, scored_at, result_version, rubric_version, final_score, final_band, result_json, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT(repo_id) DO UPDATE SET
+				INSERT INTO scores (repo_id, evaluation_mode, scored_at, result_version, rubric_version, final_score, final_band, result_json, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(repo_id, evaluation_mode) DO UPDATE SET
 					scored_at = excluded.scored_at,
 					result_version = excluded.result_version,
 					rubric_version = excluded.rubric_version,
@@ -148,18 +151,19 @@ export class Storage {
 					updated_at = excluded.updated_at
 			`).run(
 				repoId,
-				result.scoredAt,
-				result.resultVersion ?? null,
-				result.rubricVersion ?? null,
-				result.finalScore ?? result.score,
-				result.finalBand ?? result.band,
-				JSON.stringify(result),
+				mode,
+				nextResult.scoredAt,
+				nextResult.resultVersion ?? null,
+				nextResult.rubricVersion ?? null,
+				nextResult.finalScore ?? nextResult.score,
+				nextResult.finalBand ?? nextResult.band,
+				JSON.stringify(nextResult),
 				nowIso()
 			);
 			this.db.prepare(`
-				INSERT INTO score_history (repo_id, scored_at, compact_json, full_json)
-				VALUES (?, ?, ?, ?)
-			`).run(repoId, result.scoredAt, JSON.stringify(compact), JSON.stringify(result));
+				INSERT INTO score_history (repo_id, evaluation_mode, scored_at, compact_json, full_json)
+				VALUES (?, ?, ?, ?, ?)
+			`).run(repoId, mode, nextResult.scoredAt, JSON.stringify(compact), JSON.stringify(nextResult));
 		});
 		write();
 	}
@@ -168,39 +172,39 @@ export class Storage {
 		return compactHistoryEntry(result);
 	}
 
-	getScoreHistoryStore(): ScoreHistoryStore {
+	getScoreHistoryStore(mode: EvaluationMode = DEFAULT_EVALUATION_MODE): ScoreHistoryStore {
 		const repos = this.listRepos();
 		return Object.fromEntries(
 			repos
-				.map(repo => [repo.name, this.getScoreHistory(repo.name)] as const)
+				.map(repo => [repo.name, this.getScoreHistory(repo.name, mode)] as const)
 				.filter((entry): entry is [string, RepoScoreHistory] => Boolean(entry[1]))
 		);
 	}
 
-	getScoreHistory(repoName: string): RepoScoreHistory | null {
+	getScoreHistory(repoName: string, mode: EvaluationMode = DEFAULT_EVALUATION_MODE): RepoScoreHistory | null {
 		const row = this.db.prepare('SELECT id FROM repos WHERE name = ?').get(repoName) as { id: number } | undefined;
 		if (!row) return null;
 		const rows = this.db.prepare(`
 			SELECT compact_json AS compactJson, full_json AS fullJson
 			FROM score_history
-			WHERE repo_id = ?
+			WHERE repo_id = ? AND evaluation_mode = ?
 			ORDER BY datetime(scored_at), id
-		`).all(row.id) as { compactJson: string | null; fullJson: string | null }[];
+		`).all(row.id, mode) as { compactJson: string | null; fullJson: string | null }[];
 		if (rows.length === 0) return null;
 		return {
-			compact: pruneCompactHistory(rows.flatMap(item => item.compactJson ? [JSON.parse(item.compactJson)] : [])),
-			full: rows.flatMap(item => item.fullJson ? [JSON.parse(item.fullJson)] : []).slice(-5)
+			compact: pruneCompactHistory(rows.flatMap(item => item.compactJson ? [normalizeMode(JSON.parse(item.compactJson), mode)] : [])),
+			full: rows.flatMap(item => item.fullJson ? [normalizeMode(JSON.parse(item.fullJson), mode)] : []).slice(-5)
 		};
 	}
 
-	getImprovementPlan(repoName: string): ImprovementPlan | null {
+	getImprovementPlan(repoName: string, mode: EvaluationMode = DEFAULT_EVALUATION_MODE): ImprovementPlan | null {
 		const row = this.db.prepare(`
 			SELECT plan_json AS planJson, source_repo_path AS sourceRepoPath, exported_at AS exportedAt,
 				exported_plan_path AS exportedPlanPath, exported_agents_path AS exportedAgentsPath
 			FROM improvement_plans
 			JOIN repos ON repos.id = improvement_plans.repo_id
-			WHERE repos.name = ?
-		`).get(repoName) as {
+			WHERE repos.name = ? AND improvement_plans.evaluation_mode = ?
+		`).get(repoName, mode) as {
 			planJson: string;
 			sourceRepoPath: string;
 			exportedAt: string | null;
@@ -209,7 +213,7 @@ export class Storage {
 		} | undefined;
 		if (!row) return null;
 		return {
-			...JSON.parse(row.planJson),
+			...normalizeMode(JSON.parse(row.planJson), mode),
 			sourceRepoPath: row.sourceRepoPath,
 			...(row.exportedAt ? { exportedAt: row.exportedAt } : {}),
 			...(row.exportedPlanPath ? { exportedPlanPath: row.exportedPlanPath } : {}),
@@ -217,23 +221,23 @@ export class Storage {
 		};
 	}
 
-	getImprovementPlansStore(): ImprovementPlansStore {
+	getImprovementPlansStore(mode: EvaluationMode = DEFAULT_EVALUATION_MODE): ImprovementPlansStore {
 		const plans = this.listRepos()
-			.map(repo => [repo.name, this.getImprovementPlan(repo.name)] as const)
+			.map(repo => [repo.name, this.getImprovementPlan(repo.name, mode)] as const)
 			.filter((entry): entry is [string, ImprovementPlan] => Boolean(entry[1]));
 		return Object.fromEntries(plans);
 	}
 
-	saveImprovementPlan(repoName: string, plan: ImprovementPlan): void {
+	saveImprovementPlan(repoName: string, plan: ImprovementPlan, mode: EvaluationMode = plan.evaluationMode ?? DEFAULT_EVALUATION_MODE): void {
 		const repo = this.getRepo(repoName);
 		const sourceRepoPath = plan.sourceRepoPath ?? repo?.path ?? '';
-		const nextPlan = { ...plan, sourceRepoPath };
+		const nextPlan = { ...plan, evaluationMode: mode, sourceRepoPath };
 		this.db.prepare(`
 			INSERT INTO improvement_plans (
-				repo_id, source_repo_path, generated_at, exported_at, exported_plan_path, exported_agents_path, plan_json, updated_at
+				repo_id, evaluation_mode, source_repo_path, generated_at, exported_at, exported_plan_path, exported_agents_path, plan_json, updated_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(repo_id) DO UPDATE SET
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(repo_id, evaluation_mode) DO UPDATE SET
 				source_repo_path = excluded.source_repo_path,
 				generated_at = excluded.generated_at,
 				exported_at = excluded.exported_at,
@@ -243,6 +247,7 @@ export class Storage {
 				updated_at = excluded.updated_at
 		`).run(
 			this.repoId(repoName),
+			mode,
 			sourceRepoPath,
 			nextPlan.generatedAt,
 			nextPlan.exportedAt ?? null,
@@ -253,8 +258,8 @@ export class Storage {
 		);
 	}
 
-	markImprovementPlanExported(repoName: string, exported: { planPath: string; agentsPath: string }): ImprovementPlan {
-		const current = this.getImprovementPlan(repoName);
+	markImprovementPlanExported(repoName: string, exported: { planPath: string; agentsPath: string }, mode: EvaluationMode = DEFAULT_EVALUATION_MODE): ImprovementPlan {
+		const current = this.getImprovementPlan(repoName, mode);
 		if (!current) throw new Error('PLAN_NOT_FOUND');
 		const updated = {
 			...current,
@@ -262,7 +267,7 @@ export class Storage {
 			exportedPlanPath: exported.planPath,
 			exportedAgentsPath: exported.agentsPath
 		};
-		this.saveImprovementPlan(repoName, updated);
+		this.saveImprovementPlan(repoName, updated, mode);
 		return updated;
 	}
 
@@ -291,6 +296,7 @@ export class Storage {
 			);
 			CREATE TABLE IF NOT EXISTS scores (
 				repo_id INTEGER PRIMARY KEY REFERENCES repos(id) ON DELETE CASCADE,
+				evaluation_mode TEXT NOT NULL DEFAULT 'ai-readiness',
 				scored_at TEXT NOT NULL,
 				result_version INTEGER,
 				rubric_version TEXT,
@@ -302,12 +308,14 @@ export class Storage {
 			CREATE TABLE IF NOT EXISTS score_history (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+				evaluation_mode TEXT NOT NULL DEFAULT 'ai-readiness',
 				scored_at TEXT NOT NULL,
 				compact_json TEXT,
 				full_json TEXT
 			);
 			CREATE TABLE IF NOT EXISTS improvement_plans (
 				repo_id INTEGER PRIMARY KEY REFERENCES repos(id) ON DELETE CASCADE,
+				evaluation_mode TEXT NOT NULL DEFAULT 'ai-readiness',
 				source_repo_path TEXT NOT NULL,
 				generated_at TEXT NOT NULL,
 				exported_at TEXT,
@@ -317,6 +325,70 @@ export class Storage {
 				updated_at TEXT NOT NULL
 			);
 		`);
+		this.migrateEvaluationModeKeys();
+	}
+
+	private migrateEvaluationModeKeys(): void {
+		const scoreColumns = tableColumns(this.db, 'scores');
+		const scorePkColumns = scoreColumns.filter(column => column.pk > 0).sort((a, b) => a.pk - b.pk).map(column => column.name);
+		const scoresHaveMode = scoreColumns.some(column => column.name === 'evaluation_mode');
+		if (!scoresHaveMode || scorePkColumns.join(',') !== 'repo_id,evaluation_mode') {
+			const modeExpression = scoresHaveMode ? "COALESCE(evaluation_mode, 'ai-readiness')" : "'ai-readiness'";
+			this.db.exec(`
+				CREATE TABLE IF NOT EXISTS scores_next (
+					repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+					evaluation_mode TEXT NOT NULL DEFAULT 'ai-readiness',
+					scored_at TEXT NOT NULL,
+					result_version INTEGER,
+					rubric_version TEXT,
+					final_score INTEGER NOT NULL,
+					final_band TEXT NOT NULL,
+					result_json TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (repo_id, evaluation_mode)
+				);
+				INSERT OR REPLACE INTO scores_next (
+					repo_id, evaluation_mode, scored_at, result_version, rubric_version, final_score, final_band, result_json, updated_at
+				)
+				SELECT repo_id, ${modeExpression}, scored_at, result_version, rubric_version, final_score, final_band, result_json, updated_at
+				FROM scores;
+				DROP TABLE scores;
+				ALTER TABLE scores_next RENAME TO scores;
+			`);
+		}
+
+		const historyColumns = tableColumns(this.db, 'score_history');
+		if (!historyColumns.some(column => column.name === 'evaluation_mode')) {
+			this.db.exec("ALTER TABLE score_history ADD COLUMN evaluation_mode TEXT NOT NULL DEFAULT 'ai-readiness';");
+		}
+
+		const planColumns = tableColumns(this.db, 'improvement_plans');
+		const planPkColumns = planColumns.filter(column => column.pk > 0).sort((a, b) => a.pk - b.pk).map(column => column.name);
+		const plansHaveMode = planColumns.some(column => column.name === 'evaluation_mode');
+		if (!plansHaveMode || planPkColumns.join(',') !== 'repo_id,evaluation_mode') {
+			const modeExpression = plansHaveMode ? "COALESCE(evaluation_mode, 'ai-readiness')" : "'ai-readiness'";
+			this.db.exec(`
+				CREATE TABLE IF NOT EXISTS improvement_plans_next (
+					repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+					evaluation_mode TEXT NOT NULL DEFAULT 'ai-readiness',
+					source_repo_path TEXT NOT NULL,
+					generated_at TEXT NOT NULL,
+					exported_at TEXT,
+					exported_plan_path TEXT,
+					exported_agents_path TEXT,
+					plan_json TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (repo_id, evaluation_mode)
+				);
+				INSERT OR REPLACE INTO improvement_plans_next (
+					repo_id, evaluation_mode, source_repo_path, generated_at, exported_at, exported_plan_path, exported_agents_path, plan_json, updated_at
+				)
+				SELECT repo_id, ${modeExpression}, source_repo_path, generated_at, exported_at, exported_plan_path, exported_agents_path, plan_json, updated_at
+				FROM improvement_plans;
+				DROP TABLE improvement_plans;
+				ALTER TABLE improvement_plans_next RENAME TO improvement_plans;
+			`);
+		}
 	}
 
 	private importJsonBackupsOnce(): void {
@@ -333,16 +405,17 @@ export class Storage {
 			for (const [repoName, result] of Object.entries(scores)) {
 				this.ensureRepoForImportedName(repoName);
 				this.db.prepare(`
-					INSERT OR REPLACE INTO scores (repo_id, scored_at, result_version, rubric_version, final_score, final_band, result_json, updated_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+					INSERT OR REPLACE INTO scores (repo_id, evaluation_mode, scored_at, result_version, rubric_version, final_score, final_band, result_json, updated_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 				`).run(
 					this.repoId(repoName),
+					DEFAULT_EVALUATION_MODE,
 					result.scoredAt,
 					result.resultVersion ?? null,
 					result.rubricVersion ?? null,
 					result.finalScore ?? result.score,
 					result.finalBand ?? result.band,
-					JSON.stringify(result),
+					JSON.stringify(normalizeMode(result, DEFAULT_EVALUATION_MODE)),
 					nowIso()
 				);
 			}
@@ -351,12 +424,12 @@ export class Storage {
 				this.ensureRepoForImportedName(repoName);
 				const repoId = this.repoId(repoName);
 				for (const entry of history.compact ?? []) {
-					this.db.prepare('INSERT INTO score_history (repo_id, scored_at, compact_json, full_json) VALUES (?, ?, ?, ?)')
-						.run(repoId, entry.scoredAt, JSON.stringify(entry), null);
+					this.db.prepare('INSERT INTO score_history (repo_id, evaluation_mode, scored_at, compact_json, full_json) VALUES (?, ?, ?, ?, ?)')
+						.run(repoId, DEFAULT_EVALUATION_MODE, entry.scoredAt, JSON.stringify(normalizeMode(entry, DEFAULT_EVALUATION_MODE)), null);
 				}
 				for (const entry of history.full ?? []) {
-					this.db.prepare('INSERT INTO score_history (repo_id, scored_at, compact_json, full_json) VALUES (?, ?, ?, ?)')
-						.run(repoId, entry.scoredAt, null, JSON.stringify(entry));
+					this.db.prepare('INSERT INTO score_history (repo_id, evaluation_mode, scored_at, compact_json, full_json) VALUES (?, ?, ?, ?, ?)')
+						.run(repoId, DEFAULT_EVALUATION_MODE, entry.scoredAt, null, JSON.stringify(normalizeMode(entry, DEFAULT_EVALUATION_MODE)));
 				}
 			}
 			const plans = readJson<ImprovementPlansStore>(join(dataDir, 'improvement-plans.json'), {});
@@ -365,7 +438,7 @@ export class Storage {
 				this.saveImprovementPlan(repoName, {
 					...plan,
 					sourceRepoPath: plan.sourceRepoPath ?? this.getRepo(repoName)?.path ?? ''
-				});
+				}, DEFAULT_EVALUATION_MODE);
 			}
 			this.db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(JSON_IMPORT_MIGRATION, nowIso());
 		});
@@ -396,6 +469,23 @@ function rowToRepo(row: Record<string, unknown>): RepoConfig {
 		openSource: Boolean(row.openSource),
 		allowPlanExport: Boolean(row.allowPlanExport)
 	};
+}
+
+function normalizeMode<T>(value: T, mode: EvaluationMode): T {
+	if (!isRecord(value)) return value;
+	const embeddedMode = value.evaluationMode;
+	if (typeof embeddedMode === 'string' && embeddedMode !== mode) {
+		throw new Error(`EVALUATION_MODE_MISMATCH: row is "${mode}" but JSON is "${embeddedMode}"`);
+	}
+	return { ...value, evaluationMode: mode } as T;
+}
+
+function tableColumns(db: Database.Database, table: string): { name: string; pk: number }[] {
+	return db.prepare(`PRAGMA table_info(${table})`).all() as { name: string; pk: number }[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function readJson<T>(path: string, fallback: T): T {
