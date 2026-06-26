@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { scanRepo } from './scanner';
 import { callLLM } from './llmClient';
 import { CATEGORY_LABELS, CATEGORY_MAX } from './types';
+import { storage } from './server/storage';
 import type { AiTooling } from './server/appSettings';
 import type {
 	CategoryScores,
@@ -31,7 +32,7 @@ export function assertImprovementPlanExportAllowed(repo: RepoConfig): void {
 	if (repo.openSource || repo.visibility === 'public') {
 		throw new Error('PLAN_EXPORT_BLOCKED_PUBLIC_REPO');
 	}
-	if (repo.allowPlanExport === false) {
+	if (repo.allowPlanExport !== true) {
 		throw new Error('PLAN_EXPORT_DISABLED');
 	}
 }
@@ -42,7 +43,7 @@ export async function generateImprovementPlan(
 	rubric: string,
 	score: ScoreResult,
 	llmConfig: LLMConfig,
-	plansPath: string,
+	plansPath: string | undefined,
 	aiTooling: AiTooling = 'generic'
 ): Promise<ImprovementPlan> {
 	const scan = await scanRepo(repoPath);
@@ -75,9 +76,15 @@ export async function generateImprovementPlan(
 	}
 
 	plan.generatedAt = new Date().toISOString();
+	plan.sourceRepoPath = repoPath;
 	plan.repairCount = repairCount;
 	plan.qualityWarnings = [...qualityWarnings];
 	plan.markdown = renderImprovementMarkdown(plan);
+
+	if (!plansPath) {
+		storage().saveImprovementPlan(repoName, plan);
+		return plan;
+	}
 
 	let plans: ImprovementPlansStore = {};
 	try {
@@ -129,10 +136,13 @@ export async function exportImprovementPlanToRepo(repoPath: string, plan: Improv
 }
 
 export async function markImprovementPlanExported(
-	plansPath: string,
+	plansPath: string | undefined,
 	repoName: string,
 	exported: { planPath: string; agentsPath: string }
 ): Promise<ImprovementPlan> {
+	if (!plansPath) {
+		return storage().markImprovementPlanExported(repoName, exported);
+	}
 	const plans: ImprovementPlansStore = JSON.parse(await readFile(plansPath, 'utf-8'));
 	const plan = plans[repoName];
 	if (!plan) {
@@ -186,6 +196,7 @@ function normalizeImprovementPlan(value: unknown, repoName: string, score: Score
 		exportedAt: typeof value.exportedAt === 'string' ? value.exportedAt : undefined,
 		exportedPlanPath: typeof value.exportedPlanPath === 'string' ? value.exportedPlanPath : undefined,
 		exportedAgentsPath: typeof value.exportedAgentsPath === 'string' ? value.exportedAgentsPath : undefined,
+		sourceRepoPath: typeof value.sourceRepoPath === 'string' ? value.sourceRepoPath : undefined,
 		repoName,
 		summary,
 		currentScore: score.score,

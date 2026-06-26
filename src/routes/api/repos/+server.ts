@@ -30,6 +30,16 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ configured: await readRepoConfig() });
 	}
 
+	if (action === 'setExport') {
+		const allowPlanExport = Boolean(body?.allowPlanExport);
+		const repo = repos.find(repo => repo.path === path);
+		if (!repo) {
+			throw error(400, 'Repo is not configured');
+		}
+		await writeRepoConfig(repos.map(repo => repo.path === path ? { ...repo, allowPlanExport } : repo));
+		return json({ configured: await readRepoConfig() });
+	}
+
 	if (action !== 'add') {
 		throw error(400, 'Unsupported repo action');
 	}
@@ -49,7 +59,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(400, `Repo name "${name}" is already configured`);
 	}
 
-	repos.push({ name, path });
+	repos.push({ name, path, allowPlanExport: false });
 	await writeRepoConfig(repos);
 	return json({ configured: await readRepoConfig() });
 };

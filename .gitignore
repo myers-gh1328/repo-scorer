@@ -24,3 +24,6 @@ vite.config.ts.timestamp-*
 repos.config.json
 improvement-plans.json
 scores.json
+score-history.json
+repo-scorer.sqlite
+repo-scorer.sqlite-*

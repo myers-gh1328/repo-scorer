@@ -1,8 +1,8 @@
 import type { LLMConfig } from './types';
-import { DEFAULT_OPENAI_MODEL_ID, requireOpenAIModelId } from './modelCatalog';
+import { DEFAULT_OPENAI_MODEL_ID, normalizeModelId } from './modelCatalog';
 
 export async function callLLM(config: LLMConfig, prompt: string): Promise<string> {
-  const model = requireOpenAIModelId(config.model ?? DEFAULT_OPENAI_MODEL_ID);
+  const model = normalizeModelId(config.model ?? DEFAULT_OPENAI_MODEL_ID);
   const body: Record<string, unknown> = {
     model,
     messages: [{ role: 'user', content: prompt }],

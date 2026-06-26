@@ -1,10 +1,10 @@
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { RepoConfig } from '$lib/types';
+import { storage } from './storage';
 
-const CONFIG_PATH = 'repos.config.json';
 const DEFAULT_SEARCH_ROOTS = [
 	join(homedir(), 'source', 'repos'),
 	join(homedir(), 'src'),
@@ -12,17 +12,12 @@ const DEFAULT_SEARCH_ROOTS = [
 ];
 
 export async function readRepoConfig(): Promise<RepoConfig[]> {
-	try {
-		const repos = JSON.parse(await readFile(CONFIG_PATH, 'utf-8'));
-		return Array.isArray(repos) ? repos : [];
-	} catch {
-		return [];
-	}
+	return storage().listRepos();
 }
 
 export async function writeRepoConfig(repos: RepoConfig[]): Promise<void> {
 	const sorted = [...repos].sort((a, b) => a.name.localeCompare(b.name));
-	await writeFile(CONFIG_PATH, `${JSON.stringify(sorted, null, 2)}\n`);
+	storage().replaceRepos(sorted);
 }
 
 export function normalizeRepoName(path: string): string {

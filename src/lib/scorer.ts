@@ -7,6 +7,7 @@ import { applyConsistencyChecks } from './consistencyChecks';
 import { updateScoringProgress, withScoreWriteLock } from './server/scoreConcurrency';
 import { appendScoreHistory } from './scoreHistory';
 import { CATEGORY_MAX, bandForScore } from './types';
+import { storage } from './server/storage';
 import type { CategoryRationale, CategoryRationales, CategoryScores, LLMConfig, LLMResponseFormat, ScoreResult, ScoresStore, StructuredGap } from './types';
 import type { RubricCategoryDefinition, RubricDefinition } from './rubricSchema';
 
@@ -183,7 +184,7 @@ export async function scoreRepo(
   repoPath: string,
   rubric: string,
   llmConfig: LLMConfig,
-  scoresPath: string,
+  scoresPath?: string,
   rubricDefinition?: RubricDefinition,
   historyPath?: string
 ): Promise<ScoreResult> {
@@ -274,7 +275,11 @@ export async function scoreRepo(
   return result;
 }
 
-async function persistScore(scoresPath: string, name: string, result: ScoreResult, historyPath?: string): Promise<void> {
+async function persistScore(scoresPath: string | undefined, name: string, result: ScoreResult, historyPath?: string): Promise<void> {
+  if (!scoresPath) {
+    storage().saveScoreWithHistory(name, result);
+    return;
+  }
   await withScoreWriteLock(async () => {
     let scores: ScoresStore = {};
     try {

@@ -29,11 +29,18 @@ describe('assertImprovementPlanExportAllowed', () => {
 		})).toThrow('PLAN_EXPORT_BLOCKED_PUBLIC_REPO');
 	});
 
-	it('allows private repos unless explicitly disabled', () => {
+	it('allows only private repos with explicit export opt-in', () => {
 		expect(() => assertImprovementPlanExportAllowed({
 			name: 'repo-scorer',
 			path: '/repos/repo-scorer',
 			visibility: 'private'
+		})).toThrow('PLAN_EXPORT_DISABLED');
+
+		expect(() => assertImprovementPlanExportAllowed({
+			name: 'repo-scorer',
+			path: '/repos/repo-scorer',
+			visibility: 'private',
+			allowPlanExport: true
 		})).not.toThrow();
 	});
 
