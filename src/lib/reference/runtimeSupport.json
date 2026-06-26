@@ -1,0 +1,54 @@
+{
+  "version": "2026-06-26.1",
+  "lastUpdated": "2026-06-26",
+  "expiryDays": 60,
+  "sources": [
+    "https://nodejs.org/en/about/previous-releases",
+    "https://devguide.python.org/versions/",
+    "https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core",
+    "https://kubernetes.io/releases/version-skew-policy/"
+  ],
+  "entries": [
+    {
+      "ecosystem": "node",
+      "source": "https://nodejs.org/en/about/previous-releases",
+      "versions": [
+        { "major": "26", "status": "current", "supported": true },
+        { "major": "24", "status": "lts", "supported": true },
+        { "major": "22", "status": "lts", "supported": true },
+        { "major": "20", "status": "eol", "supported": false }
+      ]
+    },
+    {
+      "ecosystem": "python",
+      "source": "https://devguide.python.org/versions/",
+      "versions": [
+        { "majorMinor": "3.15", "status": "prerelease", "supported": true, "eol": "2031-10" },
+        { "majorMinor": "3.14", "status": "bugfix", "supported": true, "eol": "2030-10" },
+        { "majorMinor": "3.13", "status": "bugfix", "supported": true, "eol": "2029-10" },
+        { "majorMinor": "3.12", "status": "security", "supported": true, "eol": "2028-10" },
+        { "majorMinor": "3.11", "status": "security", "supported": true, "eol": "2027-10" },
+        { "majorMinor": "3.10", "status": "security", "supported": true, "eol": "2026-10" },
+        { "majorMinor": "3.9", "status": "eol", "supported": false, "eol": "2025-10-31" }
+      ]
+    },
+    {
+      "ecosystem": "dotnet",
+      "source": "https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core",
+      "versions": [
+        { "major": "10", "status": "lts-active", "supported": true, "eol": "2028-11-14" },
+        { "major": "9", "status": "sts-maintenance", "supported": true, "eol": "2026-11-10" },
+        { "major": "8", "status": "lts-maintenance", "supported": true, "eol": "2026-11-10" },
+        { "major": "7", "status": "eol", "supported": false, "eol": "2024-05-14" }
+      ]
+    },
+    {
+      "ecosystem": "kubernetes",
+      "source": "https://kubernetes.io/releases/version-skew-policy/",
+      "policy": {
+        "supportedMinorBranches": ["1.36", "1.35", "1.34"],
+        "patchSupport": "approximately 1 year for Kubernetes 1.19 and newer"
+      }
+    }
+  ]
+}

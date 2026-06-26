@@ -6,6 +6,7 @@
 
   type ScoreJobStatus = {
     repoName: string;
+    evaluationMode: string;
     status: 'running' | 'stale';
     startedAt: string;
     elapsedMs: number;
@@ -27,7 +28,10 @@
     .map(band => ({ band, count: allScores.filter(score => (score.finalBand ?? score.band) === band).length }))
     .filter(item => item.count > 0));
   const categoryEntries = $derived(data.rubric.categories);
-  const scoreJobsByRepo = $derived(Object.fromEntries(scoreJobs.map(job => [job.repoName, job])));
+  const scoreJobsByRepo = $derived(Object.fromEntries(scoreJobs
+    .filter(job => job.evaluationMode === data.mode)
+    .map(job => [job.repoName, job])));
+  const modeQuery = $derived(`?mode=${data.mode}`);
 
   $effect(() => {
     let cancelled = false;
@@ -59,7 +63,7 @@
       const res = await fetch('/api/score', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, path })
+        body: JSON.stringify({ name, path, mode: data.mode })
       });
 
       if (!res.ok) {
@@ -68,7 +72,7 @@
         return;
       }
 
-      window.location.href = `/repo/${name}`;
+      window.location.href = `/repo/${name}${modeQuery}`;
     } catch {
       scoreError = { ...scoreError, [name]: 'Network error — could not reach server' };
     } finally {
@@ -135,6 +139,13 @@
     <div>
       <h1>Repo Scorer</h1>
       <p class="subtitle">Agentic Repository Maturity Dashboard</p>
+    </div>
+    <div class="button-row">
+      {#each data.modes as mode}
+        <a class="button-link" class:disabled-link={mode.id === data.mode} href={`/?mode=${mode.id}`}>
+          {mode.label}{mode.beta ? ' beta' : ''}
+        </a>
+      {/each}
     </div>
     <a
       class="button-link"
@@ -207,7 +218,7 @@
         <tr>
           <td>
             {#if score}
-              <a href="/repo/{repo.name}">{repo.name}</a>
+              <a href="/repo/{repo.name}{modeQuery}">{repo.name}</a>
             {:else}
               {repo.name}
             {/if}

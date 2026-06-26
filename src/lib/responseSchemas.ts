@@ -1,5 +1,6 @@
 import { CATEGORY_MAX } from './types';
 import type { CategoryScores, LLMResponseFormat } from './types';
+import type { RubricDefinition } from './rubricSchema';
 
 const CATEGORY_KEYS = Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[];
 const CATEGORY_PROPERTIES = Object.fromEntries(
@@ -61,6 +62,75 @@ export const scoreResponseFormat: LLMResponseFormat = {
 		}
 	}
 };
+
+export function scoreResponseFormatForRubric(rubric: RubricDefinition): LLMResponseFormat {
+	const categoryKeys = rubric.categories.map(category => category.key);
+	const categoryProperties = Object.fromEntries(
+		rubric.categories.map(category => [
+			category.key,
+			{ type: 'integer', minimum: 0, maximum: category.weight }
+		])
+	);
+	const rationaleProperties = Object.fromEntries(
+		rubric.categories.map(category => [
+			category.key,
+			{
+				type: 'object',
+				additionalProperties: false,
+				required: ['score', 'evidence', 'gaps'],
+				properties: {
+					score: { type: 'integer', minimum: 0, maximum: category.weight },
+					evidence: { type: 'array', items: { type: 'string' } },
+					gaps: { type: 'array', items: { type: 'string' } },
+					structuredGaps: {
+						type: 'array',
+						items: {
+							type: 'object',
+							additionalProperties: false,
+							required: ['description'],
+							properties: {
+								description: { type: 'string' },
+								severity: { type: 'string', enum: ['blocking', 'high', 'medium', 'low'] },
+								evidenceNeeded: { type: 'array', items: { type: 'string' } }
+							}
+						}
+					}
+				}
+			}
+		])
+	);
+
+	return {
+		type: 'json_schema',
+		json_schema: {
+			name: `repo_score_${rubric.version.replace(/[^a-zA-Z0-9_]+/g, '_')}`,
+			schema: {
+				type: 'object',
+				additionalProperties: false,
+				required: ['score', 'band', 'primaryLanguage', 'categories', 'qualityFlags', 'riskFlags', 'recommendations'],
+				properties: {
+					score: { type: 'integer', minimum: 0, maximum: rubric.totalScore },
+					band: { type: 'string', enum: rubric.bands.map(band => band.label) },
+					primaryLanguage: { type: 'string' },
+					categories: {
+						type: 'object',
+						additionalProperties: false,
+						required: categoryKeys,
+						properties: categoryProperties
+					},
+					categoryRationales: {
+						type: 'object',
+						additionalProperties: false,
+						properties: rationaleProperties
+					},
+					qualityFlags: { type: 'array', items: { type: 'string' } },
+					riskFlags: { type: 'array', items: { type: 'string' } },
+					recommendations: { type: 'array', items: { type: 'string' } }
+				}
+			}
+		}
+	};
+}
 
 export const improvementPlanResponseFormat: LLMResponseFormat = {
 	type: 'json_schema',

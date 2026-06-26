@@ -124,6 +124,32 @@ describe('storage', () => {
 		expect(history?.full.at(-1)).toMatchObject({ score: 72, scoredAt: '2026-06-25T12:00:00.000Z' });
 	});
 
+	it('keeps scores, history, and improvement plans isolated by evaluation mode', async () => {
+		const repoPath = await makeGitRepo('repo-a');
+		const store = storage();
+		await store.addRepo({ name: 'repo-a', path: repoPath });
+
+		await store.saveScoreWithHistory('repo-a', score('2026-06-25T12:00:00.000Z', 72), 'ai-readiness');
+		await store.saveScoreWithHistory('repo-a', {
+			...score('2026-06-25T13:00:00.000Z', 81),
+			categories: { verification_coverage: 12, repository_hygiene: 8 }
+		}, 'maintainability');
+		await store.saveImprovementPlan('repo-a', plan('repo-a', repoPath), 'ai-readiness');
+		await store.saveImprovementPlan('repo-a', {
+			...plan('repo-a', repoPath),
+			summary: 'Improve maintainability.',
+			currentScore: 81,
+			currentBand: 'Healthy'
+		}, 'maintainability');
+
+		expect(await store.getScore('repo-a')).toMatchObject({ score: 72, evaluationMode: 'ai-readiness' });
+		expect(await store.getScore('repo-a', 'maintainability')).toMatchObject({ score: 81, evaluationMode: 'maintainability' });
+		expect((await store.getScoreHistory('repo-a'))?.full).toHaveLength(1);
+		expect((await store.getScoreHistory('repo-a', 'maintainability'))?.full.at(-1)).toMatchObject({ score: 81 });
+		expect(await store.getImprovementPlan('repo-a')).toMatchObject({ currentScore: 72, evaluationMode: 'ai-readiness' });
+		expect(await store.getImprovementPlan('repo-a', 'maintainability')).toMatchObject({ currentScore: 81, evaluationMode: 'maintainability' });
+	});
+
 	it('rolls back score persistence when history insertion fails', async () => {
 		const repoPath = await makeGitRepo('repo-a');
 		const store = storage();

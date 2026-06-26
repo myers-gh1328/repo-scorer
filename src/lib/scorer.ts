@@ -6,9 +6,9 @@ import { applyEvidenceCaps } from './scoreCaps';
 import { applyConsistencyChecks } from './consistencyChecks';
 import { updateScoringProgress, withScoreWriteLock } from './server/scoreConcurrency';
 import { appendScoreHistory } from './scoreHistory';
-import { CATEGORY_MAX, bandForScore } from './types';
+import { CATEGORY_MAX, DEFAULT_EVALUATION_MODE, bandForScore } from './types';
 import { storage } from './server/storage';
-import type { CategoryRationale, CategoryRationales, CategoryScores, LLMConfig, LLMResponseFormat, ScoreResult, ScoresStore, StructuredGap } from './types';
+import type { CategoryRationale, CategoryRationales, CategoryScores, EvaluationMode, LLMConfig, LLMResponseFormat, ScoreResult, ScoresStore, StructuredGap } from './types';
 import type { RubricCategoryDefinition, RubricDefinition } from './rubricSchema';
 
 const CATEGORY_KEYS = Object.keys(CATEGORY_MAX);
@@ -186,9 +186,12 @@ export async function scoreRepo(
   llmConfig: LLMConfig,
   scoresPath?: string,
   rubricDefinition?: RubricDefinition,
-  historyPath?: string
+  historyPath?: string,
+  evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE,
+  metadata: Pick<ScoreResult, 'referenceDataVersion' | 'referenceDataLastUpdated' | 'scannerEvidenceVersion'> = {}
 ): Promise<ScoreResult> {
   updateScoringProgress(name, {
+    evaluationMode,
     phase: 'scan',
     phaseLabel: 'Scanning repository',
     currentStep: 0,
@@ -196,8 +199,9 @@ export async function scoreRepo(
   });
   const scan = await scanRepo(repoPath);
   if (rubricDefinition) {
-    let result = await scoreRepoByCategory(rubricDefinition, rubric, scan, llmConfig, name);
+    let result = await scoreRepoByCategory(rubricDefinition, rubric, scan, llmConfig, name, evaluationMode);
     updateScoringProgress(name, {
+      evaluationMode,
       phase: 'caps',
       phaseLabel: 'Applying deterministic evidence caps',
       currentStep: rubricDefinition.categories.length + 1,
@@ -207,21 +211,25 @@ export async function scoreRepo(
     result.cappedScore = result.score;
     result.cappedBand = rubricDefinition.bandForScore(result.cappedScore);
     updateScoringProgress(name, {
+      evaluationMode,
       phase: 'consistency',
       phaseLabel: 'Checking band consistency constraints',
       currentStep: rubricDefinition.categories.length + 2,
       totalSteps: rubricDefinition.categories.length + 4
     });
     result = applyConsistencyChecks(result, scan.evidence, rubricDefinition);
+    result = { ...result, ...metadata };
     result.scoredAt = new Date().toISOString();
     updateScoringProgress(name, {
+      evaluationMode,
       phase: 'persist',
       phaseLabel: 'Persisting score and history',
       currentStep: rubricDefinition.categories.length + 3,
       totalSteps: rubricDefinition.categories.length + 4
     });
-    await persistScore(scoresPath, name, result, historyPath);
+    await persistScore(scoresPath, name, result, historyPath, evaluationMode);
     updateScoringProgress(name, {
+      evaluationMode,
       phase: 'complete',
       phaseLabel: 'Scoring complete',
       currentStep: rubricDefinition.categories.length + 4,
@@ -256,16 +264,20 @@ export async function scoreRepo(
   }
 
   result = applyEvidenceCaps(result, scan.evidence);
+  result = { ...result, ...metadata };
   result.scoredAt = new Date().toISOString();
 
   updateScoringProgress(name, {
+    evaluationMode,
     phase: 'persist',
     phaseLabel: 'Persisting score and history',
     currentStep: 3,
     totalSteps: 4
   });
-  await persistScore(scoresPath, name, result, historyPath);
+  result.evaluationMode = evaluationMode;
+  await persistScore(scoresPath, name, result, historyPath, evaluationMode);
   updateScoringProgress(name, {
+    evaluationMode,
     phase: 'complete',
     phaseLabel: 'Scoring complete',
     currentStep: 4,
@@ -275,9 +287,9 @@ export async function scoreRepo(
   return result;
 }
 
-async function persistScore(scoresPath: string | undefined, name: string, result: ScoreResult, historyPath?: string): Promise<void> {
+async function persistScore(scoresPath: string | undefined, name: string, result: ScoreResult, historyPath?: string, evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE): Promise<void> {
   if (!scoresPath) {
-    storage().saveScoreWithHistory(name, result);
+    storage().saveScoreWithHistory(name, result, evaluationMode);
     return;
   }
   await withScoreWriteLock(async () => {
@@ -287,11 +299,11 @@ async function persistScore(scoresPath: string | undefined, name: string, result
     } catch {
       // file missing or corrupt — start fresh
     }
-    scores[name] = result;
+    scores[name] = { ...result, evaluationMode };
     await writeFile(scoresPath, JSON.stringify(scores, null, 2));
   });
   if (historyPath) {
-    await appendScoreHistory(historyPath, name, result);
+    await appendScoreHistory(historyPath, name, { ...result, evaluationMode });
   }
 }
 
@@ -300,13 +312,15 @@ async function scoreRepoByCategory(
   rubric: string,
   scan: Awaited<ReturnType<typeof scanRepo>>,
   llmConfig: LLMConfig,
-  repoName: string
+  repoName: string,
+  evaluationMode: EvaluationMode
 ): Promise<ScoreResult> {
   const categories = {} as CategoryScores;
   const categoryRationales: CategoryRationales = {};
 
   for (const [index, category] of rubricDefinition.categories.entries()) {
     updateScoringProgress(repoName, {
+      evaluationMode,
       phase: 'category',
       phaseLabel: `Scoring ${category.label} (${index + 1}/${rubricDefinition.categories.length})`,
       currentStep: index + 1,
@@ -349,6 +363,7 @@ async function scoreRepoByCategory(
   const rationaleEntries = Object.entries(categoryRationales)
     .filter((entry): entry is [string, CategoryRationale] => Boolean(entry[1]));
   return {
+    evaluationMode,
     resultVersion: 2,
     rubricVersion: rubricDefinition.version,
     scoredAt: '',

@@ -149,4 +149,36 @@ describe('scanRepo', () => {
     expect(result.evidence.hookFiles).toContain('.codex/hooks/hooks.json');
     expect(result.evidence.lockfiles).toContain('Cargo.lock');
   });
+
+  it('detects maintainability evidence conservatively', async () => {
+    await mkdir(join(repoDir, 'src'), { recursive: true });
+    await mkdir(join(repoDir, 'infra'), { recursive: true });
+    await mkdir(join(repoDir, '.github', 'workflows'), { recursive: true });
+    await writeFile(join(repoDir, '.gitignore'), 'node_modules\n');
+    await writeFile(join(repoDir, 'package.json'), JSON.stringify({
+      scripts: {
+        test: 'vitest --run',
+        check: 'svelte-check'
+      },
+      engines: { node: '>=20' }
+    }));
+    await writeFile(join(repoDir, 'src', 'thing.test.ts'), 'expect(true).toBe(true)');
+    await writeFile(join(repoDir, 'infra', 'main.tf'), 'resource "azurerm_resource_group" "main" {}');
+    await writeFile(join(repoDir, '.github', 'workflows', 'deploy.yml'), 'steps:\n  - run: terraform validate\n');
+    await writeFile(join(repoDir, 'service.credentials.json'), '{"client_secret":"abcdefghijklmnopqrstuvwxyz"}');
+
+    const result = await scanRepo(repoDir);
+
+    expect(result.evidence.hasAutomatedTests).toBe(true);
+    expect(result.evidence.testFiles).toContain('src/thing.test.ts');
+    expect(result.evidence.testScripts).toContain('package.json:test=vitest --run');
+    expect(result.evidence.validationScripts).toContain('package.json:check=svelte-check');
+    expect(result.evidence.hasGitignore).toBe(true);
+    expect(result.evidence.iacFiles).toContain('infra/main.tf');
+    expect(result.evidence.iacValidationCommands).toContain('.github/workflows/deploy.yml: terraform validate');
+    expect(result.evidence.cloudDeploymentFiles).toContain('infra/main.tf');
+    expect(result.evidence.runtimeFiles).toContain('package.json');
+    expect(result.evidence.hasCommittedSecretRisk).toBe(true);
+    expect(result.evidence.secretRiskFiles).toContain('service.credentials.json');
+  });
 });

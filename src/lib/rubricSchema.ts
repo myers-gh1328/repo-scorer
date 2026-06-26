@@ -22,6 +22,23 @@ const EVIDENCE_FIELDS = new Set([
 	'hasMcpManifest',
 	'hasHooks',
 	'hasExternalUnversionedHookReference'
+	,
+	'testFiles',
+	'testScripts',
+	'validationScripts',
+	'hasAutomatedTests',
+	'gitignoreFiles',
+	'hasGitignore',
+	'secretRiskFiles',
+	'hasCommittedSecretRisk',
+	'iacFiles',
+	'iacValidationCommands',
+	'cloudDeploymentFiles',
+	'hasCloudDeploymentWithoutIac',
+	'runtimeFiles',
+	'runtimeVersionFiles',
+	'eolRuntimeRisks',
+	'hasSupportedCoreRuntime'
 ]);
 
 const CONSISTENCY_CHECKS = new Set<string>(CONSISTENCY_CHECK_IDS);

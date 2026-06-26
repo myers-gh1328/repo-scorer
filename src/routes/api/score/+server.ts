@@ -1,27 +1,26 @@
 import type { RequestHandler } from './$types';
 import { json, error } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { readAppSettings } from '$lib/server/appSettings';
 import { readRepoConfig } from '$lib/server/repoConfig';
 import { scoreRepo } from '$lib/scorer';
-import { scoreResponseFormat } from '$lib/responseSchemas';
-import { readRubricDefinition } from '$lib/rubricSchema';
+import { scoreResponseFormatForRubric } from '$lib/responseSchemas';
 import { beginScoring, finishScoring } from '$lib/server/scoreConcurrency';
-import type { RepoConfig } from '$lib/types';
-
-const RUBRIC_PATH = 'rubric.md';
-const RUBRIC_SCHEMA_PATH = 'rubric.schema.json';
+import { evaluationModeDefinition, parseEvaluationMode, readEvaluationRubric } from '$lib/evaluationModes';
+import { readRuntimeSupportMatrix } from '$lib/reference/runtimeSupport';
+import type { EvaluationMode, RepoConfig } from '$lib/types';
 
 export const POST: RequestHandler = async ({ request }) => {
   let name: string;
   let path: string;
+  let mode: EvaluationMode;
   try {
     const body = await request.json();
     name = body?.name;
     path = body?.path;
+    mode = parseEvaluationMode(body?.mode);
   } catch {
-    throw error(400, 'Request body must be valid JSON');
+    throw error(400, 'Request body must be valid JSON and include a supported evaluation mode when mode is provided');
   }
 
   if (!name || typeof name !== 'string' || !path || typeof path !== 'string') {
@@ -38,28 +37,36 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(400, `Repo path not found: ${path}`);
   }
 
-  if (!beginScoring(name)) {
-    throw error(409, `Repo "${name}" is already being scored`);
+  if (!beginScoring(name, mode)) {
+    throw error(409, `Repo "${name}" is already being scored for ${mode}`);
   }
 
   try {
-    let rubric: string;
-    rubric = await readFile(RUBRIC_PATH, 'utf-8');
+    const { markdown: rubric, definition: rubricDefinition } = await readEvaluationRubric(mode);
+    const modeDefinition = evaluationModeDefinition(mode);
+    const runtimeSupport = modeDefinition.referenceDataPath
+      ? await readRuntimeSupportMatrix(modeDefinition.referenceDataPath)
+      : null;
 
     const { llmBaseUrl, llmModel, useJsonSchema } = await readAppSettings();
 
-    const rubricDefinition = await readRubricDefinition(RUBRIC_SCHEMA_PATH);
     const result = await scoreRepo(name, path, rubric, {
       baseUrl: llmBaseUrl,
       model: llmModel,
       maxTokens: 4096,
-      responseFormat: useJsonSchema ? scoreResponseFormat : undefined
-    }, undefined, rubricDefinition);
+      responseFormat: useJsonSchema ? scoreResponseFormatForRubric(rubricDefinition) : undefined
+    }, undefined, rubricDefinition, undefined, mode, {
+      scannerEvidenceVersion: '2026-06-26.1',
+      ...(runtimeSupport ? {
+        referenceDataVersion: runtimeSupport.version,
+        referenceDataLastUpdated: runtimeSupport.lastUpdated
+      } : {})
+    });
     return json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes('ENOENT') && msg.includes(RUBRIC_PATH)) {
-      throw error(500, 'rubric.md not found in project root');
+    if (msg.includes('ENOENT')) {
+      throw error(500, `Rubric file not found for ${mode}`);
     }
     if (msg.startsWith('LLM_UNREACHABLE')) {
       throw error(503, `LLM server unreachable: ${msg.replace(/^LLM_UNREACHABLE:?\s*/, '')}`);
@@ -69,6 +76,6 @@ export const POST: RequestHandler = async ({ request }) => {
     }
     throw error(500, `Scoring failed: ${msg}`);
   } finally {
-    finishScoring(name);
+    finishScoring(name, mode);
   }
 };

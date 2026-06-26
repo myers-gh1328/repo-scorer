@@ -13,7 +13,7 @@ describe('scoreConcurrency', () => {
 	beforeEach(() => {
 		vi.useRealTimers();
 		for (const job of getScoringJobs()) {
-			finishScoring(job.repoName);
+			finishScoring(job.repoName, job.evaluationMode);
 		}
 	});
 
@@ -27,6 +27,20 @@ describe('scoreConcurrency', () => {
 		}
 		expect(beginScoring('repo-a')).toBe(true);
 		finishScoring('repo-a');
+	});
+
+	it('tracks the same repo independently by evaluation mode', () => {
+		expect(beginScoring('repo-a', 'ai-readiness')).toBe(true);
+		expect(beginScoring('repo-a', 'maintainability')).toBe(true);
+		expect(beginScoring('repo-a', 'ai-readiness')).toBe(false);
+
+		expect(getScoringJobs().map(job => `${job.repoName}:${job.evaluationMode}`).sort()).toEqual([
+			'repo-a:ai-readiness',
+			'repo-a:maintainability'
+		]);
+
+		finishScoring('repo-a', 'ai-readiness');
+		expect(beginScoring('repo-a', 'ai-readiness')).toBe(true);
 	});
 
 	it('serializes score writes', async () => {

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { scanRepo } from './scanner';
 import { callLLM } from './llmClient';
-import { CATEGORY_LABELS, CATEGORY_MAX } from './types';
+import { CATEGORY_LABELS, CATEGORY_MAX, DEFAULT_EVALUATION_MODE } from './types';
 import { storage } from './server/storage';
 import type { AiTooling } from './server/appSettings';
 import type {
@@ -13,7 +13,8 @@ import type {
 	ImprovementTask,
 	LLMConfig,
 	RepoConfig,
-	ScoreResult
+	ScoreResult,
+	EvaluationMode
 } from './types';
 
 const CATEGORY_KEYS = Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[];
@@ -44,7 +45,8 @@ export async function generateImprovementPlan(
 	score: ScoreResult,
 	llmConfig: LLMConfig,
 	plansPath: string | undefined,
-	aiTooling: AiTooling = 'generic'
+	aiTooling: AiTooling = 'generic',
+	evaluationMode: EvaluationMode = score.evaluationMode ?? DEFAULT_EVALUATION_MODE
 ): Promise<ImprovementPlan> {
 	const scan = await scanRepo(repoPath);
 	const inventory = await collectRepoInventory(repoPath);
@@ -76,13 +78,14 @@ export async function generateImprovementPlan(
 	}
 
 	plan.generatedAt = new Date().toISOString();
+	plan.evaluationMode = evaluationMode;
 	plan.sourceRepoPath = repoPath;
 	plan.repairCount = repairCount;
 	plan.qualityWarnings = [...qualityWarnings];
 	plan.markdown = renderImprovementMarkdown(plan);
 
 	if (!plansPath) {
-		storage().saveImprovementPlan(repoName, plan);
+		storage().saveImprovementPlan(repoName, plan, evaluationMode);
 		return plan;
 	}
 
@@ -125,23 +128,27 @@ export function parseImprovementPlan(raw: string, repoName: string, score: Score
 
 export async function exportImprovementPlanToRepo(repoPath: string, plan: ImprovementPlan): Promise<{ planPath: string; agentsPath: string }> {
 	const agentDir = join(repoPath, '.agent');
-	const planPath = join(repoPath, EXPORTED_PLAN_PATH);
+	const exportPath = plan.evaluationMode && plan.evaluationMode !== DEFAULT_EVALUATION_MODE
+		? `.agent/improvement-plan-${plan.evaluationMode}.md`
+		: EXPORTED_PLAN_PATH;
+	const planPath = join(repoPath, exportPath);
 	const agentsPath = join(repoPath, 'AGENTS.md');
 
 	await mkdir(agentDir, { recursive: true });
 	await writeFile(planPath, `${plan.markdown.trim()}\n`);
 	await ensureAgentsPointer(agentsPath);
 
-	return { planPath: EXPORTED_PLAN_PATH, agentsPath: 'AGENTS.md' };
+	return { planPath: exportPath, agentsPath: 'AGENTS.md' };
 }
 
 export async function markImprovementPlanExported(
 	plansPath: string | undefined,
 	repoName: string,
-	exported: { planPath: string; agentsPath: string }
+	exported: { planPath: string; agentsPath: string },
+	evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE
 ): Promise<ImprovementPlan> {
 	if (!plansPath) {
-		return storage().markImprovementPlanExported(repoName, exported);
+		return storage().markImprovementPlanExported(repoName, exported, evaluationMode);
 	}
 	const plans: ImprovementPlansStore = JSON.parse(await readFile(plansPath, 'utf-8'));
 	const plan = plans[repoName];
@@ -745,14 +752,14 @@ Original model output to repair:
 ${raw}`;
 }
 
-function normalizeCategoryList(value: unknown): (keyof CategoryScores)[] {
+function normalizeCategoryList(value: unknown): string[] {
 	if (!Array.isArray(value)) return [];
-	return value.map(categoryValue).filter((item): item is keyof CategoryScores => Boolean(item));
+	return value.map(categoryValue).filter((item): item is string => Boolean(item));
 }
 
-function categoryValue(value: unknown): keyof CategoryScores | null {
-	return typeof value === 'string' && CATEGORY_KEYS.includes(value as keyof CategoryScores)
-		? value as keyof CategoryScores
+function categoryValue(value: unknown): string | null {
+	return typeof value === 'string' && CATEGORY_KEYS.includes(value)
+		? value
 		: null;
 }
 

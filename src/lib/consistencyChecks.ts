@@ -10,7 +10,12 @@ export const CONSISTENCY_CHECK_IDS = [
 	'has_reproducibility_evidence',
 	'has_agent_asset_ci_checks',
 	'has_sandbox_or_deny_controls',
-	'has_tool_access_governance'
+	'has_tool_access_governance',
+	'has_meaningful_verification',
+	'has_supported_core_runtime',
+	'has_secret_controls',
+	'has_repeatable_build_or_validation',
+	'has_iac_validation_when_iac_present'
 ] as const;
 
 const CHECKS: Record<ConsistencyCheckId, CheckEvaluator> = {
@@ -71,8 +76,77 @@ const CHECKS: Record<ConsistencyCheckId, CheckEvaluator> = {
 				? 'Tool manifest evidence was found'
 				: 'Mature requires governed tool access evidence when evaluating agentic tooling maturity'
 		};
+	},
+	has_meaningful_verification(evidence) {
+		const testFiles = stringArrayEvidence(evidence, 'testFiles');
+		const testScripts = stringArrayEvidence(evidence, 'testScripts');
+		const matches = [...testFiles, ...testScripts];
+		return {
+			passed: booleanEvidence(evidence, 'hasAutomatedTests') || matches.length > 0,
+			evidence: matches.length > 0 ? matches : ['No automated test files or test scripts found'],
+			reason: matches.length > 0
+				? 'Automated verification evidence was found'
+				: 'Durable maintainability requires meaningful automated verification'
+		};
+	},
+	has_supported_core_runtime(evidence) {
+		const risks = stringArrayEvidence(evidence, 'eolRuntimeRisks');
+		const runtimeFiles = stringArrayEvidence(evidence, 'runtimeVersionFiles');
+		const hasKnownSupportedRuntime = booleanEvidence(evidence, 'hasSupportedCoreRuntime');
+		return {
+			passed: hasKnownSupportedRuntime || risks.length === 0,
+			evidence: risks.length > 0 ? risks : runtimeFiles.length > 0 ? runtimeFiles : ['No EOL runtime risk evidence found'],
+			reason: risks.length > 0
+				? 'Runtime support risks were found'
+				: 'No known EOL runtime risk was found in scanner evidence'
+		};
+	},
+	has_secret_controls(evidence) {
+		const risks = stringArrayEvidence(evidence, 'secretRiskFiles');
+		const hasRisk = booleanEvidence(evidence, 'hasCommittedSecretRisk') || risks.length > 0;
+		return {
+			passed: !hasRisk,
+			evidence: risks.length > 0 ? risks : ['No committed secret-risk files found by conservative scanner evidence'],
+			reason: hasRisk
+				? 'Committed secret-risk evidence was found'
+				: 'No committed secret-risk evidence was found'
+		};
+	},
+	has_repeatable_build_or_validation(evidence) {
+		const commands = stringArrayEvidence(evidence, 'validationScripts');
+		const workflows = evidence.workflowFiles.filter(path => /ci|build|test|validate/i.test(path));
+		const matches = [...commands, ...workflows];
+		return {
+			passed: matches.length > 0,
+			evidence: matches.length > 0 ? matches : ['No repeatable build or validation command evidence found'],
+			reason: matches.length > 0
+				? 'Repeatable validation evidence was found'
+				: 'Healthy repositories expose repeatable build or validation commands'
+		};
+	},
+	has_iac_validation_when_iac_present(evidence) {
+		const iacFiles = stringArrayEvidence(evidence, 'iacFiles');
+		const commands = stringArrayEvidence(evidence, 'iacValidationCommands');
+		return {
+			passed: iacFiles.length === 0 || commands.length > 0,
+			evidence: commands.length > 0 ? commands : iacFiles.length > 0 ? iacFiles : ['No IaC files found; IaC validation is not applicable'],
+			reason: iacFiles.length === 0
+				? 'No IaC evidence found, so IaC validation is not applicable'
+				: commands.length > 0
+					? 'IaC validation evidence was found'
+					: 'IaC is present but no validation command evidence was found'
+		};
 	}
 };
+
+function stringArrayEvidence(evidence: EvidenceInventory, field: string): string[] {
+	const value = (evidence as unknown as Record<string, unknown>)[field];
+	return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function booleanEvidence(evidence: EvidenceInventory, field: string): boolean {
+	return (evidence as unknown as Record<string, unknown>)[field] === true;
+}
 
 export function applyConsistencyChecks(
 	result: ScoreResult,
