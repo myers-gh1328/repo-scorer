@@ -144,7 +144,7 @@
 		<div class="settings-row">
 			<label>
 				<span>Base URL</span>
-				<input bind:value={llmBaseUrl} placeholder="http://192.168.4.43:8080" />
+				<input bind:value={llmBaseUrl} placeholder="http://192.168.20.43:8080" />
 			</label>
 			<button disabled={!llmBaseUrl.trim() || loadingModels} onclick={loadModels}>
 				{loadingModels ? 'Loading…' : 'Load models'}
