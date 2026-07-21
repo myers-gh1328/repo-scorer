@@ -23,15 +23,15 @@ afterEach(async () => {
 describe('readAppSettings', () => {
 	it('migrates approved legacy MLX settings to neutral LLM settings on read', async () => {
 		await writeFile(envFile, [
-			'MLX_BASE_URL=http://192.168.4.43:8080',
+			'MLX_BASE_URL=http://192.168.20.43:8080',
 			'MLX_MODEL=gpt-5.4-nano'
 		].join('\n'));
 
 		const settings = await readAppSettings();
 
-		expect(settings.llmBaseUrl).toBe('http://192.168.4.43:8080');
+		expect(settings.llmBaseUrl).toBe('http://192.168.20.43:8080');
 		expect(settings.llmModel).toBe('gpt-5.4-nano');
-		await expect(readFile(envFile, 'utf-8')).resolves.toContain('LLM_BASE_URL=http://192.168.4.43:8080');
+		await expect(readFile(envFile, 'utf-8')).resolves.toContain('LLM_BASE_URL=http://192.168.20.43:8080');
 		await expect(readFile(envFile, 'utf-8')).resolves.toContain('LLM_MODEL=gpt-5.4-nano');
 	});
 
