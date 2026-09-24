@@ -9,7 +9,7 @@ Inputs:
 - rubric.schema.json
 - src/lib/scoreCaps.ts, src/lib/promptBuilder.ts, src/lib/scanner.ts
 Required follow-up:
-- Maintainer decides whether to adopt a dual score (cloud profile + local profile) and approves or edits the proposed weights in section 5.
+- Maintainer approved the direction on 2026-09-24: a cloud score plus a user-selected local tier (tiny ≤4B / small 5–14B / medium 15–35B; larger models count as cloud). The maintainer still needs to approve or edit the tier weights and guidance budgets in section 5.3.
 - Re-verify the items marked NOT VERIFIED once `arxiv.org`, `cursor.com`, `docs.windsurf.com`, and `developers.openai.com` are reachable (blocked by this environment's network policy on 2026-09-24).
 - Then run `implement-rubric-update` for the confirmed vendor-freshness changes in section 3. Those are low risk and can proceed independently of the dual-score decision.
 
@@ -71,84 +71,124 @@ Required follow-up:
 
 ## 5. Cloud vs local: evidence and proposal
 
-### 5.1 Why two scores
+### 5.1 What "local" realistically means
 
-| Dimension | Local (≤32B dense / ~30B-A3B MoE) vs frontier | Evidence |
-|---|---|---|
-| SWE-bench Verified | Small–medium gap | Qwen3-Coder-Next (80B/A3B) 70.6–71.3 vs Claude Opus 4.5 77.8–79.0 on the same scaffolds [primary: QwenLM/Qwen3-Coder tech report]. The 2026 frontier is likely further ahead; not verified. |
-| Long-horizon terminal tasks | Large | Terminal-Bench 2.0: 36.2 / 30.9 vs 57.3 / 53.9 [primary: same report] |
-| Single-turn tool calls | Negligible | BFCL v4 Live: Qwen3-32B 82.01 vs Opus 4.5 79.79 [primary: gorilla gh-pages data_overall.csv, 2026-04-12] |
-| Multi-turn / memory tool use | Large (2–5×) | Multi-turn: Qwen3-30B-A3B 30.00 vs Opus 4.5 68.38; memory 17.63 vs 73.76 [primary: same CSV] |
-| Effective context | Large | See E6 |
-| Default context budget | Large | Ollama: "< 24 GiB VRAM: 4k context… 24-48 GiB VRAM: 32k"; "agents, and coding tools should be set to at least 64000 tokens" [primary: ollama/ollama docs/context-length.mdx] |
-| Prompt prefill cost | Very large on laptops | M1 Pro, Qwen3.6-27B Q4: 12.9 tok/s dense / 38.6 tok/s MoE prefill; 7.5K-token cold prompt takes 92.8 s [primary: github.com/marcofariasmx/local-llm-apple-silicon]. Community benchmark, one machine. |
-| 4-bit quantization | Small on code benchmarks | Qwen3.6-27B HumanEval: Q6_K 83.5, Q4_K_M 82.3, IQ2_XXS 59.8 [primary: github.com/yrougy/llm-quant-bench, community]. No agentic study found. |
+Local tiers are bucketed by **total parameters**, because total size decides whether a model fits in memory. Anything too large for consumer hardware (roughly >35B total) belongs in the **cloud** profile, including large open-weight models run on hosted APIs or workstation rigs. An earlier draft of this report used Qwen3-Coder-Next (80B/A3B) as the local reference. That was unrealistic and has been removed.
 
-**Artifact portability across local-capable harnesses** [primary: each project's GitHub docs/source]:
+**Hardware people actually have:**
 
-- **Broad:** `AGENTS.md` is read by Codex, OpenCode, Goose, Roo, Cline, Crush, Zed, Qwen Code, Mistral Vibe and Kilo. `.agents/skills` is read by Codex, Goose, OpenCode, Roo, Crush, Zed and Vibe.
-- **Narrow:** hook formats, subagent formats and path-scoped rule formats are nearly all tool-specific.
-- **Aider:** reads conventions via `--read` and has no skills, subagents or hooks.
-- **Claude Code on local models:** possible via Ollama or LM Studio, but "Anthropic… doesn't support routing Claude Code to non-Claude models" [primary: code.claude.com/docs/en/llm-gateway].
-- **Tool docs warn about local models:**
-  - Goose: "Most locally-hosted models… will need the shim".
-  - Continue: "not all models that claim tool support work correctly".
-  - Qwen Code: "the longer it gets, the less reliably Qwen follows it".
-  - OpenCode: "MCP servers add to your context".
+- **Ollama's default context by VRAM:** "< 24 GiB VRAM: 4k context; 24-48 GiB VRAM: 32k context; >= 48 GiB VRAM: 256k context". The same page says "agents, and coding tools should be set to at least 64000 tokens" [primary: github.com/ollama/ollama docs/context-length.mdx].
+- **GPU VRAM share (Steam survey, Jul–Aug 2026) [secondary]:**
+  - 16 GB: ~25.9%
+  - 8 GB: ~25.3%
+  - 12 GB: ~12.9%
+  - 24 GB: ~5.4%
+- **Typical local machine:** 8–16 GB of VRAM, or a 16–36 GB Mac, running at the default 4K–32K context.
 
-**Conclusion.** The same repo can be well configured for a frontier cloud agent and poorly configured for a local one. The main difference is the prompt budget, more than raw coding ability:
+### 5.2 Realistic local capability vs frontier
 
-- **Budget:** always-on guidance, MCP tool schemas and tool-specific layers cost little in the cloud but degrade accuracy and add minutes of latency locally.
-- **Portability:** local harnesses mostly consume only portable formats.
+Neutral-harness numbers are preferred over vendor claims, because vendor scaffolds use ~200K context and custom tooling.
 
-A single score cannot represent both. **Recommendation: two scores computed from one scan.** The shared evidence inventory is reused, with a per-profile weight table and a few profile-specific checks.
+| Benchmark | Local tier: model (≈4-bit size) | Local score | Frontier on same harness | Source |
+|---|---|---|---|---|
+| SWE-bench Verified, mini-SWE-agent, bash-only | Medium: Devstral Small 2, 24B (~14 GB) | 56.4 | Claude 4.5 Opus 76.8; GPT 5.2 72.8; Gemini 3 Pro 69.6 | [primary: SWE-bench/experiments metadata.yaml] |
+| same | Medium: Qwen3.6-27B, FP8 | 67.8 | same | [independent: QwenLM/Qwen3 discussion #1846] |
+| SWE-bench Verified, OpenHands | Medium: Qwen3-Coder-30B-A3B (~17 GB) | 51.6 | — | [primary: SWE-bench/experiments] |
+| SWE-bench Verified | Small: FrogMini-14B (~8 GB) | 45.0 | — | [primary: SWE-bench/experiments] |
+| Terminal-Bench 2.0 | Medium: Qwen3.6-35B-A3B, **local Q4 laptop run** | 24.6 ± 3.2 (vendor claims 51.5) | Opus 4.5 59.3; Gemini 3 56.7; GPT-5.1 48.6 | [independent: little-coder README; frontier from anthropic.com] |
+| Terminal-Bench 2.0 | Small: Qwen3.5-9B (~5 GB), local | 9.2 ± 2.4 | same | [independent: little-coder README] |
+| BFCL v4 multi-turn | Medium: Qwen3-32B / Qwen3-30B-A3B | 47.87 / 30.00 | Opus 4.5 68.38 | [primary: BFCL data_overall.csv] |
+| BFCL v4 multi-turn | Small: Qwen3-8B / Qwen3-14B | 41.75 / 34.75 | same | same |
+| Aider polyglot (2025 data) | Medium: Qwen3 32B / Gemma 3 27B | 40.0 / 4.9 | gpt-5 88.0; claude-opus-4 72.0 | [primary: aider polyglot_leaderboard.yml] |
+| Harness sensitivity | Small: Qwen3.5-9B | 19.1% vanilla Aider → 45.6% tuned harness | — | [independent: little-coder README] |
 
-### 5.2 Proposed weights (judgment derived from the evidence above; not empirically calibrated)
+**What the numbers show:**
 
-| Category | Current | Cloud | Local | Rationale |
-|---|---:|---:|---:|---|
-| Persistent guidance | 15 | 12 | 20 | Concise, non-inferable content (E1, E2). Local adds a hard always-on token budget. |
-| Validation & reproducibility | 10 | 15 | 20 | Strongest evidence (E4). Local favors narrow, fast, deterministic commands. |
-| CI & PR automation | 10 | 10 | 8 | Unchanged value; less direct local-loop impact. |
-| Security, sandboxing, hooks | 10 | 12 | 10 | Cloud/background agents raise the stakes. Local credits portable approval modes over tool-specific hooks. |
-| Skills | 10 | 10 | 10 | Progressive disclosure saves context. Local credits only portable locations (`.agents/skills`). |
-| Scoped rules | 10 | 8 | 8 | Useful for context scoping; formats are fragmented. |
-| Domain & decision context | 5 | 8 | 10 | Examples and contracts help agents locate code (E2 small-model coverage gain). |
-| Specialized agents | 10 | 6 | 2 | No performance evidence (E3); weak multi-turn/subagent reliability locally. |
-| Tool manifests & MCP | 10 | 6 | 4 | N/A-neutral (S1). Local rewards a *small* tool surface. |
-| Governance & observability | 5 | 7 | 3 | Matters at org scale and for cloud background agents. |
-| Versioning & provenance | 3 | 3 | 3 | Unchanged; include plugins (F14). |
-| Onboarding & discoverability | 2 | 3 | 2 | Minor. |
-| **Total** | 100 | 100 | 100 | |
+- **Medium (15–35B):** roughly 10–20 points behind the frontier on SWE-bench-style single-repo fixes. Roughly 30+ points behind on long-horizon terminal work when run on real local hardware. About 20–40 points behind on multi-turn tool calling.
+- **Small (5–14B):** usable for scoped edits at best. Long-horizon agentic work is mostly out of reach (single digits on Terminal-Bench).
+- **Tiny (≤4B):** no credible agentic-coding benchmark found. Treat as a completion or chat assistant. The tier's settings are extrapolated and low confidence.
+- **Current frontier:** Opus 5.5 and GPT-6 Astra report Terminal-Bench 4.0, which no local model has run. The true gap today is unmeasured and likely larger than the rows above.
+- **Harness and context matter as much as the model at small sizes.** The same 9B model more than doubled its score with a tuned harness. So what the *repo* supplies (short guidance, exact commands, examples) matters more the smaller the model.
 
-**New local-profile checks:**
+Artifact portability, context-rot and prefill findings from the earlier passes still hold:
 
-- **Always-on guidance token budget** (S3). Suggested thresholds: full credit ≤ 2K tokens, partial ≤ 4K, a risk flag above that. Derivation: NoLiMa small-model effective length is about 1–2K, and Ollama defaults to 4K below 24 GiB of VRAM.
-- **Stable prefix:** no dates, generated content or frequently edited text in always-on guidance, so prompt caching stays effective.
-- **Portable formats:** `AGENTS.md` and `.agents/skills` are preferred over tool-only equivalents.
-- **Narrow validation:** a single-file or single-package test command is documented, not just the full suite.
-- **Context-length expectation:** a note on the context size the repo needs.
+- AGENTS.md and `.agents/skills` are broadly portable; hooks and subagents are tool-specific.
+- Small models degrade after ~1–2K tokens (NoLiMa).
+- Prefill costs minutes per 10K tokens on laptop Macs.
 
-**New cloud-profile checks:** F1 (CLAUDE.md shadowing AGENTS.md), F15 (cloud-agent setup), and F14 (plugins).
+### 5.3 Proposed scoring design
 
-### 5.3 Calibration requirement
+**One scan, one LLM category assessment, then per-profile deterministic weighting.**
 
-These weights are reasoned from the evidence, not measured. Before promoting them out of beta, calibrate with the rubric's own Phase 6 smoke test:
+- The LLM judges each category's facts once.
+- Each profile applies its own weights and token-budget checks in code.
+- Switching tier does not require re-scoring.
+- The user picks a local tier once, either globally or per repo in `repos.config.json`.
+- The detail page shows **Cloud** next to the selected **Local** tier.
+
+| Profile | Total params | Typical hardware (≈4-bit) | Always-on guidance budget* | Evidence confidence |
+|---|---|---|---|---|
+| Local: tiny | ≤ ~4B | 8 GB laptops / phones | ≤ 1K tokens | Low (no agentic benchmarks) |
+| Local: small | ~5–14B | 16 GB Mac, 8–12 GB GPU | ≤ 1.5K tokens | Medium |
+| Local: medium | ~15–35B, incl. 30B-A3B / 35B-A3B MoE | 24–36 GB Mac, 16–24 GB GPU | ≤ 3K tokens | Medium |
+| Cloud | anything larger, or hosted | hosted APIs, workstations | Advisory flag only (threshold: human decision) | Medium |
+
+\*Always-on guidance means AGENTS.md, CLAUDE.md, `alwaysApply` rules and un-scoped `.claude/rules` (evidence field S3). The limits are anchored to NoLiMa effective lengths (<1K–2K for small models, 8–16K for frontier), IFScale instruction-density decay, and Ollama's 4K default below 24 GiB. Full credit applies at or under the budget, partial credit up to 2× the budget, and a risk flag above that.
+
+**Weights (judgment derived from the evidence above; not empirically calibrated):**
+
+| Category | Current | Cloud | Local medium | Local small | Local tiny |
+|---|---:|---:|---:|---:|---:|
+| Persistent guidance (incl. budget check) | 15 | 12 | 20 | 21 | 22 |
+| Validation & reproducibility | 10 | 15 | 20 | 22 | 24 |
+| CI & PR automation | 10 | 10 | 8 | 8 | 8 |
+| Security, sandboxing, hooks | 10 | 12 | 10 | 10 | 10 |
+| Skills (local tiers: portable locations only) | 10 | 10 | 10 | 8 | 6 |
+| Scoped rules | 10 | 8 | 8 | 8 | 8 |
+| Domain & decision context | 5 | 8 | 10 | 11 | 12 |
+| Specialized agents | 10 | 6 | 2 | 1 | 0 |
+| Tool manifests & MCP (N/A-neutral, S1) | 10 | 6 | 4 | 3 | 2 |
+| Governance & observability | 5 | 7 | 3 | 3 | 2 |
+| Versioning & provenance | 3 | 3 | 3 | 3 | 3 |
+| Onboarding & discoverability | 2 | 3 | 2 | 2 | 3 |
+| **Total** | 100 | 100 | 100 | 100 | 100 |
+
+**Why the weights move as models get smaller:**
+
+- **Guidance, validation and domain examples go up.** Small models gain most from repo-supplied scaffolding (harness-sensitivity row) and from help locating code (E2).
+- **Skills, specialized agents and MCP go down.** They depend on the model choosing to invoke tools across multiple turns, which is where small models are weakest (BFCL multi-turn). MCP tool schemas also consume scarce context.
+- **Governance goes down.** It matters for org-scale and background cloud agents, not a single developer's local loop.
+- **Specialized agents have zero weight in the tiny tier.** The category is shown as N/A instead of scored.
+
+**Additional deterministic local checks, applied in all local tiers:**
+
+- A stable prefix: no dates or generated content in always-on guidance, so prompt caching stays effective.
+- Portable formats (AGENTS.md, `.agents/skills`) preferred over tool-only equivalents.
+- A documented narrow test command (single file or package).
+- An optional note on the context length the repo needs.
+
+**Additional cloud checks:** F1 (CLAUDE.md shadowing AGENTS.md), F14 (plugins), and F15 (cloud-agent setup).
+
+### 5.4 Calibration requirement
+
+These weights and budgets are reasoned from the evidence, not measured. Before promoting them out of beta, run the rubric's Phase 6 smoke test:
 
 1. Pick 5–10 repos.
-2. Run one frontier cloud agent and one local model (for example, Qwen3-Coder 30B-A3B at 4-bit via MLX) on the same trivial-change task.
-3. Check that each profile's score correlates with that model's success, turns and time.
+2. Run the same trivial-change task with one cloud model and one representative model per local tier: for example, a ~27–35B model for medium, ~8–9B for small, and ~3–4B for tiny, all at 4-bit via MLX with the context the user actually runs.
+3. Check that each profile's score correlates with that model's success, turn count and time.
 
 ## 6. Unresolved and blocked items
 
 - Per-model deltas in arXiv 2602.11988 (was Qwen3-30B hurt more than Sonnet 4.5 by context files?) are **NOT VERIFIED**; the PDF was blocked. This is the single most useful missing number for the local profile.
 - arXiv 2606.20512, 2607.26117, 2607.27250 and 2605.10039 were seen as snippets only.
-- Current (September 2026) frontier SWE-bench and Terminal-Bench numbers and context windows are **NOT VERIFIED**.
+- Current frontier models (Opus 5.5, GPT-6 Astra) report Terminal-Bench 4.0, which no local model has run, so the present-day gap is unmeasured.
+- The tiny tier (≤4B) has no credible agentic-coding benchmark; its settings are extrapolated.
+- Several local numbers come from vendor model-card mirrors or independent runs rather than official leaderboards (tagged in section 5.2).
 - Cursor (F19) and Windsurf/Devin (F20) are **NOT VERIFIED**.
 - LM Studio's default context length is **NOT VERIFIED**.
 
 ## 7. Implementation readiness
 
 - **Can proceed after maintainer sign-off (low risk):** F1–F18 vendor updates and S1 (remove the MCP cap).
-- **Needs human product decision:** the dual score (section 5), its weights, and the local token-budget thresholds.
+- **Needs human sign-off:** the tier weights and token budgets (section 5.3). The dual-score direction is approved.
 - **Needs re-verification when the network allows:** section 6 items and F19–F20.
