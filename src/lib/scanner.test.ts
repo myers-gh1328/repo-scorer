@@ -337,4 +337,91 @@ describe('scanRepo', () => {
     expect(result.evidence.runtimeReferenceDataStale).toBe(true);
     expect(result.evidence.hasSupportedCoreRuntime).toBe(false);
   });
+
+  it('records untruncated length and measures always-on guidance per tool', async () => {
+    await writeFile(join(repoDir, 'AGENTS.md'), 'x'.repeat(10_000));
+    await mkdir(join(repoDir, '.cursor', 'rules'), { recursive: true });
+    await writeFile(join(repoDir, '.cursor', 'rules', 'always.mdc'), '---\nalwaysApply: true\n---\n' + 'a'.repeat(400));
+    await writeFile(join(repoDir, '.cursor', 'rules', 'scoped.mdc'), '---\nglobs: "src/**"\nalwaysApply: false\n---\nscoped');
+
+    const { files, evidence } = await scanRepo(repoDir);
+
+    expect(files.find(f => f.relativePath === 'AGENTS.md')?.fullLength).toBe(10_000);
+    expect(evidence.alwaysOnGuidanceByTool?.generic).toMatchObject({ files: ['AGENTS.md'], chars: 10_000, estimatedTokens: 2500 });
+    expect(evidence.alwaysOnGuidanceByTool?.cursor.files).toEqual(['AGENTS.md', '.cursor/rules/always.mdc']);
+  });
+
+  it('flags CLAUDE.md that shadows AGENTS.md unless it imports it', async () => {
+    await writeFile(join(repoDir, 'AGENTS.md'), '# Agents');
+    await writeFile(join(repoDir, 'CLAUDE.md'), '# Claude only');
+    await mkdir(join(repoDir, '.claude', 'rules'), { recursive: true });
+    await writeFile(join(repoDir, '.claude', 'rules', 'global.md'), 'global rule');
+    await writeFile(join(repoDir, '.claude', 'rules', 'api.md'), '---\npaths:\n  - "api/**"\n---\napi rule');
+
+    let evidence = (await scanRepo(repoDir)).evidence;
+    expect(evidence.claudeMdShadowsAgentsMd).toBe(true);
+    expect(evidence.alwaysOnGuidanceByTool?.claude.files).toEqual(['CLAUDE.md', '.claude/rules/global.md']);
+
+    await writeFile(join(repoDir, 'CLAUDE.md'), '@AGENTS.md\n');
+    evidence = (await scanRepo(repoDir)).evidence;
+    expect(evidence.claudeMdShadowsAgentsMd).toBe(false);
+    expect(evidence.alwaysOnGuidanceByTool?.claude.files).toEqual(['CLAUDE.md', 'AGENTS.md', '.claude/rules/global.md']);
+  });
+
+  it('uses AGENTS.md for Claude when no CLAUDE.md exists', async () => {
+    await writeFile(join(repoDir, 'AGENTS.md'), '# Agents');
+
+    const { evidence } = await scanRepo(repoDir);
+
+    expect(evidence.claudeMdShadowsAgentsMd).toBe(false);
+    expect(evidence.alwaysOnGuidanceByTool?.claude.files).toEqual(['AGENTS.md']);
+  });
+
+  it('counts only repo-wide Copilot path instructions as always-on', async () => {
+    await mkdir(join(repoDir, '.github', 'instructions'), { recursive: true });
+    await writeFile(join(repoDir, '.github', 'copilot-instructions.md'), 'copilot');
+    await writeFile(join(repoDir, '.github', 'instructions', 'all.instructions.md'), '---\napplyTo: "**"\n---\nall');
+    await writeFile(join(repoDir, '.github', 'instructions', 'ts.instructions.md'), '---\napplyTo: "**/*.ts"\n---\nts');
+
+    const { evidence } = await scanRepo(repoDir);
+
+    expect(evidence.alwaysOnGuidanceByTool?.copilot.files).toEqual([
+      '.github/copilot-instructions.md',
+      '.github/instructions/all.instructions.md'
+    ]);
+  });
+
+  it('detects legacy prompts, plugins, cloud setup, portable skills, and volatile guidance', async () => {
+    await writeFile(join(repoDir, 'AGENTS.md'), '# Agents\n\nLast updated 2026-09-01');
+    await mkdir(join(repoDir, '.github', 'prompts'), { recursive: true });
+    await writeFile(join(repoDir, '.github', 'prompts', 'review.prompt.md'), 'review');
+    await mkdir(join(repoDir, '.github', 'workflows'), { recursive: true });
+    await writeFile(join(repoDir, '.github', 'workflows', 'copilot-setup-steps.yml'), 'on: workflow_dispatch\njobs:\n  copilot-setup-steps: {}\n');
+    await mkdir(join(repoDir, '.claude-plugin'), { recursive: true });
+    await writeFile(join(repoDir, '.claude-plugin', 'marketplace.json'), '{}');
+    await mkdir(join(repoDir, '.agents', 'skills', 'fix-tests'), { recursive: true });
+    await writeFile(join(repoDir, '.agents', 'skills', 'fix-tests', 'SKILL.md'), '---\nname: fix-tests\n---\n');
+    await mkdir(join(repoDir, '.codex', 'agents'), { recursive: true });
+    await writeFile(join(repoDir, '.codex', 'agents', 'reviewer.toml'), 'name = "reviewer"');
+    await writeFile(join(repoDir, 'CLAUDE.local.md'), 'personal');
+
+    const { evidence } = await scanRepo(repoDir);
+
+    expect(evidence.legacyPromptFiles).toEqual(['.github/prompts/review.prompt.md']);
+    expect(evidence.pluginManifestFiles).toEqual(['.claude-plugin/marketplace.json']);
+    expect(evidence.cloudAgentSetupFiles).toEqual(['.github/workflows/copilot-setup-steps.yml']);
+    expect(evidence.portableSkillFiles).toEqual(['.agents/skills/fix-tests/SKILL.md']);
+    expect(evidence.specializedAgentFiles).toContain('.codex/agents/reviewer.toml');
+    expect(evidence.hasVolatileGuidancePrefix).toBe(true);
+    expect(evidence.claudeLocalMdNotIgnored).toBe(true);
+  });
+
+  it('treats a gitignored CLAUDE.local.md as safe', async () => {
+    await writeFile(join(repoDir, 'CLAUDE.local.md'), 'personal');
+    await writeFile(join(repoDir, '.gitignore'), 'node_modules\nCLAUDE.local.md\n');
+
+    const { evidence } = await scanRepo(repoDir);
+
+    expect(evidence.claudeLocalMdNotIgnored).toBe(false);
+  });
 });

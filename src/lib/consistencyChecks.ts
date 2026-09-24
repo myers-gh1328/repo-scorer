@@ -186,12 +186,32 @@ export function applyConsistencyChecks(
 ): ScoreResult {
 	const cappedScore = result.cappedScore ?? result.score;
 	const cappedBand = result.cappedBand ?? rubric.bandForScore(cappedScore);
-	const constraints = rubric.bandConstraints ?? [];
+	const { finalScore, finalBand, checks } = evaluateBandConstraints(
+		cappedScore,
+		cappedBand,
+		evidence,
+		rubric,
+		rubric.bandConstraints ?? []
+	);
+	return withScoreStages(result, rubric, cappedScore, cappedBand, finalScore, finalBand, checks);
+}
+
+/**
+ * Walks band constraints from the starting band downward until no failed
+ * constraint lowers the band further.
+ */
+export function evaluateBandConstraints(
+	score: number,
+	band: string,
+	evidence: EvidenceInventory,
+	rubric: RubricDefinition,
+	constraints: RubricBandConstraintDefinition[]
+): { finalScore: number; finalBand: string; checks: ConsistencyCheckResult[] } {
 	if (constraints.length === 0) {
-		return withScoreStages(result, rubric, cappedScore, cappedBand, cappedScore, cappedBand, []);
+		return { finalScore: score, finalBand: band, checks: [] };
 	}
 
-	let finalBand = cappedBand;
+	let finalBand = band;
 	const checks: ConsistencyCheckResult[] = [];
 	const evaluatedBands = new Set<string>();
 
@@ -209,9 +229,7 @@ export function applyConsistencyChecks(
 		finalBand = nextBand;
 	}
 
-	const finalScore = Math.min(cappedScore, maxScoreForBand(finalBand, rubric));
-
-	return withScoreStages(result, rubric, cappedScore, cappedBand, finalScore, finalBand, checks);
+	return { finalScore: Math.min(score, maxScoreForBand(finalBand, rubric)), finalBand, checks };
 }
 
 function evaluateConstraint(
@@ -281,7 +299,7 @@ function mostRestrictiveBand(labels: string[], rubric: RubricDefinition): string
 	return ranked[0]?.label ?? labels[0] ?? rubric.bands[0]?.label ?? 'Unknown';
 }
 
-function maxScoreForBand(label: string, rubric: RubricDefinition): number {
+export function maxScoreForBand(label: string, rubric: RubricDefinition): number {
 	const band = rubric.bands.find(band => band.label === label);
 	return band?.max ?? rubric.totalScore;
 }

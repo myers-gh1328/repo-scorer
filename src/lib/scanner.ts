@@ -8,7 +8,11 @@ const MAX_COLLECT_DEPTH = 5;
 
 const EXACT_FILES = [
   'AGENTS.md',
+  'AGENTS.override.md',
   'CLAUDE.md',
+  '.claude/CLAUDE.md',
+  'CLAUDE.local.md',
+  '.cursorrules',
   'GEMINI.md',
   'README.md',
   'CONTRIBUTING.md',
@@ -32,6 +36,14 @@ const EXACT_FILES = [
   'bun.lockb',
   '.mcp.json',
   '.cursor/mcp.json',
+  '.vscode/mcp.json',
+  '.codex/config.toml',
+  '.codex/hooks.json',
+  '.gemini/settings.json',
+  '.claude-plugin/plugin.json',
+  '.claude-plugin/marketplace.json',
+  '.cursor-plugin/plugin.json',
+  'plugin.json',
   '.claude/settings.json',
   '.claude/settings.local.json',
   '.cursor/hooks.json',
@@ -54,6 +66,15 @@ const SCANNED_DIRS = [
   '.agent/skills',
   '.agents/skills',
   '.codex/hooks',
+  '.codex/agents',
+  '.codex/skills',
+  '.gemini/agents',
+  '.gemini/skills',
+  '.github/prompts',
+  '.github/hooks',
+  '.claude/commands',
+  '.claude/output-styles',
+  '.devcontainer',
   'docs/agent',
   'docs/decisions',
   'docs/adr',
@@ -106,7 +127,7 @@ async function collectDir(
         await collectDir(full, repoRoot, files, depth + 1);
       } else if (s.isFile() && isRelevantFile(entry)) {
         const content = await readFile(full, 'utf-8');
-        files.push({ relativePath: relative(repoRoot, full).replace(/\\/g, '/'), content: content.slice(0, MAX_FILE_CHARS) });
+        files.push({ relativePath: relative(repoRoot, full).replace(/\\/g, '/'), content: content.slice(0, MAX_FILE_CHARS), fullLength: content.length });
       }
     } catch {
       // skip unreadable entries
@@ -117,6 +138,17 @@ async function collectDir(
 export interface ScannedFile {
   relativePath: string;
   content: string;
+  /** Untruncated character length; `content` is capped at MAX_FILE_CHARS. */
+  fullLength?: number;
+}
+
+export const GUIDANCE_TOOLS = ['generic', 'claude', 'cursor', 'copilot', 'windsurf'] as const;
+export type GuidanceTool = typeof GUIDANCE_TOOLS[number];
+
+export interface AlwaysOnGuidance {
+  files: string[];
+  chars: number;
+  estimatedTokens: number;
 }
 
 export interface EvidenceInventory {
@@ -156,6 +188,14 @@ export interface EvidenceInventory {
   runtimeVersionFiles?: string[];
   eolRuntimeRisks?: string[];
   supportedRuntimeFiles?: string[];
+  alwaysOnGuidanceByTool?: Record<GuidanceTool, AlwaysOnGuidance>;
+  hasVolatileGuidancePrefix?: boolean;
+  claudeMdShadowsAgentsMd?: boolean;
+  claudeLocalMdNotIgnored?: boolean;
+  legacyPromptFiles?: string[];
+  pluginManifestFiles?: string[];
+  cloudAgentSetupFiles?: string[];
+  portableSkillFiles?: string[];
   unknownRuntimeVersionFiles?: string[];
   runtimeReferenceDataStale?: boolean;
   hasSupportedCoreRuntime?: boolean;
@@ -174,7 +214,7 @@ export async function scanRepo(repoPath: string, runtimeSupport?: RuntimeSupport
     if (existsSync(full)) {
       try {
         const content = await readFile(full, 'utf-8');
-        files.push({ relativePath: filePath, content: content.slice(0, MAX_FILE_CHARS) });
+        files.push({ relativePath: filePath, content: content.slice(0, MAX_FILE_CHARS), fullLength: content.length });
       } catch {
         // skip
       }
@@ -230,7 +270,7 @@ async function collectByName(dir: string, repoRoot: string, files: ScannedFile[]
         const relativePath = relative(repoRoot, full).replace(/\\/g, '/');
         if (files.some(file => file.relativePath === relativePath)) continue;
         const content = await readFile(full, 'utf-8');
-        files.push({ relativePath, content: content.slice(0, MAX_FILE_CHARS) });
+        files.push({ relativePath, content: content.slice(0, MAX_FILE_CHARS), fullLength: content.length });
       }
     } catch {
       // skip unreadable entries
@@ -263,7 +303,7 @@ async function collectByPredicate(
         const relativePath = relative(repoRoot, full).replace(/\\/g, '/');
         if (!predicate(relativePath) || files.some(file => file.relativePath === relativePath)) continue;
         const content = await readFile(full, 'utf-8');
-        files.push({ relativePath, content: content.slice(0, MAX_FILE_CHARS) });
+        files.push({ relativePath, content: content.slice(0, MAX_FILE_CHARS), fullLength: content.length });
       }
     } catch {
       // skip unreadable entries
@@ -273,14 +313,15 @@ async function collectByPredicate(
 
 function buildEvidence(files: ScannedFile[], runtimeSupport?: RuntimeSupportMatrix): EvidenceInventory {
   const paths = files.map(file => file.relativePath);
-  const guidanceFiles = paths.filter(path => path === 'AGENTS.md' || path.endsWith('/AGENTS.md') || path === 'CLAUDE.md' || path === 'GEMINI.md' || path === '.github/copilot-instructions.md');
+  const guidanceFiles = paths.filter(path => path === 'AGENTS.md' || path.endsWith('/AGENTS.md') || path === 'AGENTS.override.md' || path === 'CLAUDE.md' || path === '.claude/CLAUDE.md' || path === 'GEMINI.md' || path === '.cursorrules' || path === '.github/copilot-instructions.md');
   const nestedGuidanceFiles = paths.filter(path => path.endsWith('/AGENTS.md'));
   const skillFiles = paths.filter(path => path.endsWith('/SKILL.md'));
   const recipeLikeDocs = paths.filter(path => /(^|\/)(TASK_RECIPES|EVALS|LOCAL_MODEL_READINESS|TOOL_CONTRACTS|REPO_MAP)\.md$/.test(path));
-  const specializedAgentFiles = paths.filter(path => /(^|\/)(agents)\/.+\.md$/.test(path) || path.endsWith('.agent.md'));
+  const specializedAgentFiles = paths.filter(path => /(^|\/)(agents)\/.+\.md$/.test(path) || path.endsWith('.agent.md') || /^\.codex\/agents\/.+\.toml$/.test(path));
   const workflowFiles = paths.filter(path => path.startsWith('.github/workflows/') && /\.(ya?ml)$/.test(path));
   const workflowTriggers = unique(workflowFiles.flatMap(path => extractWorkflowTriggers(files.find(file => file.relativePath === path)?.content ?? '')));
-  const mcpManifestFiles = paths.filter(path => MCP_MANIFEST_PATHS.has(path) || basename(path) === 'mcp.json');
+  const mcpManifestFiles = paths.filter(path => MCP_MANIFEST_PATHS.has(path) || basename(path) === 'mcp.json' ||
+    (path === '.codex/config.toml' && /^\[mcp_servers[.\]]/m.test(files.find(file => file.relativePath === path)?.content ?? '')));
   const hookFiles = paths.filter(path => path.includes('/hooks/') || path.endsWith('hooks.json') || path.startsWith('.codex/hooks/'));
   const lockfiles = paths.filter(path => /(^|\/)(Cargo\.lock|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb)$/.test(path));
   const agentDocs = paths.filter(path => path.startsWith('docs/agent/') || path === 'llms.txt');
@@ -305,6 +346,10 @@ function buildEvidence(files: ScannedFile[], runtimeSupport?: RuntimeSupportMatr
     ? runtimeSupportAnalysis(files, runtimeSupport)
     : { risks: [], supportedRuntimeFiles: [], unknownRuntimeVersionFiles: [] };
   const eolRuntimeRisks = runtimeAnalysis.risks;
+
+  const alwaysOnGuidanceByTool = buildAlwaysOnGuidance(files);
+  const alwaysOnFiles = unique(Object.values(alwaysOnGuidanceByTool).flatMap(entry => entry.files));
+  const rootGitignore = files.find(file => file.relativePath === '.gitignore')?.content ?? '';
 
   return {
     guidanceFiles,
@@ -345,11 +390,89 @@ function buildEvidence(files: ScannedFile[], runtimeSupport?: RuntimeSupportMatr
     supportedRuntimeFiles: runtimeAnalysis.supportedRuntimeFiles,
     unknownRuntimeVersionFiles: runtimeAnalysis.unknownRuntimeVersionFiles,
     runtimeReferenceDataStale: runtimeSupport ? isRuntimeSupportMatrixStale(runtimeSupport) : undefined,
+    alwaysOnGuidanceByTool,
+    hasVolatileGuidancePrefix: alwaysOnFiles.some(path => hasVolatileContent(files.find(file => file.relativePath === path)?.content ?? '')),
+    claudeMdShadowsAgentsMd: paths.includes('AGENTS.md') &&
+      CLAUDE_PROJECT_FILES.some(path => paths.includes(path)) &&
+      !CLAUDE_PROJECT_FILES.some(path => importsAgentsMd(files.find(file => file.relativePath === path)?.content ?? '')),
+    claudeLocalMdNotIgnored: paths.includes('CLAUDE.local.md') && !/^\/?CLAUDE\.local\.md\s*$/m.test(rootGitignore),
+    legacyPromptFiles: paths.filter(path => /^\.github\/prompts\/.+\.prompt\.md$/.test(path) || path.endsWith('.chatmode.md')),
+    pluginManifestFiles: paths.filter(path => /^\.(claude|cursor)-plugin\//.test(path) || path === 'plugin.json'),
+    cloudAgentSetupFiles: paths.filter(path => path === '.github/workflows/copilot-setup-steps.yml' || path === '.github/workflows/copilot-setup-steps.yaml' || path.startsWith('.devcontainer/')),
+    portableSkillFiles: paths.filter(path => /^\.agents\/skills\/.+\/SKILL\.md$/.test(path)),
     hasSupportedCoreRuntime: runtimeAnalysis.supportedRuntimeFiles.length > 0
       && eolRuntimeRisks.length === 0
       && runtimeAnalysis.unknownRuntimeVersionFiles.length === 0
       && !(runtimeSupport ? isRuntimeSupportMatrixStale(runtimeSupport) : false)
   };
+}
+
+const CLAUDE_PROJECT_FILES = ['CLAUDE.md', '.claude/CLAUDE.md', 'CLAUDE.local.md'];
+
+/**
+ * Always-on guidance is what a tool loads into every session regardless of task.
+ * Token counts use a chars/4 approximation over untruncated file length.
+ */
+function buildAlwaysOnGuidance(files: ScannedFile[]): Record<GuidanceTool, AlwaysOnGuidance> {
+  const byPath = new Map(files.map(file => [file.relativePath, file]));
+  const has = (path: string) => byPath.has(path);
+  const agentsFiles = ['AGENTS.md', 'AGENTS.override.md'].filter(has);
+
+  const claudeFiles = CLAUDE_PROJECT_FILES.filter(has);
+  const claudeImportsAgents = claudeFiles.some(path => importsAgentsMd(byPath.get(path)?.content ?? ''));
+  const claudeRules = files
+    .filter(file => /^\.claude\/rules\/.+\.md$/.test(file.relativePath) && !frontmatterHasKey(file.content, 'paths'))
+    .map(file => file.relativePath);
+  const claude = [
+    ...(claudeFiles.length > 0 ? claudeFiles : agentsFiles),
+    ...(claudeFiles.length > 0 && claudeImportsAgents ? agentsFiles : []),
+    ...claudeRules
+  ];
+
+  const cursorRules = files
+    .filter(file => /^\.cursor\/rules\/.+\.mdc?$/.test(file.relativePath) && /^alwaysApply:\s*true\s*$/m.test(frontmatter(file.content)))
+    .map(file => file.relativePath);
+  const cursor = [...agentsFiles, ...['.cursorrules'].filter(has), ...cursorRules];
+
+  const copilotInstructions = files
+    .filter(file => /^\.github\/instructions\/.+\.instructions\.md$/.test(file.relativePath) &&
+      /^applyTo:\s*['"]?\*\*(\/\*)?['"]?\s*$/m.test(frontmatter(file.content)))
+    .map(file => file.relativePath);
+  const copilot = [...['.github/copilot-instructions.md'].filter(has), ...agentsFiles, ...copilotInstructions];
+
+  const measure = (paths: string[]): AlwaysOnGuidance => {
+    const unique = [...new Set(paths)];
+    const chars = unique.reduce((sum, path) => {
+      const file = byPath.get(path);
+      return sum + (file?.fullLength ?? file?.content.length ?? 0);
+    }, 0);
+    return { files: unique, chars, estimatedTokens: Math.ceil(chars / 4) };
+  };
+
+  return {
+    generic: measure(agentsFiles),
+    claude: measure(claude),
+    cursor: measure(cursor),
+    copilot: measure(copilot),
+    windsurf: measure(agentsFiles)
+  };
+}
+
+function frontmatter(content: string): string {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+  return match ? match[1] : '';
+}
+
+function frontmatterHasKey(content: string, key: string): boolean {
+  return new RegExp(`^${key}\\s*:`, 'm').test(frontmatter(content));
+}
+
+function importsAgentsMd(content: string): boolean {
+  return /(^|\s)@(\.\/)?AGENTS\.md\b/m.test(content);
+}
+
+function hasVolatileContent(content: string): boolean {
+  return /\b20\d\d-\d\d-\d\d\b/.test(content) || /\b(last updated|generated (on|at))\b/i.test(content);
 }
 
 function isTestPath(path: string): boolean {

@@ -50,19 +50,20 @@ export interface ConsistencyCheckResult {
   impact: ConsistencyCheckImpact;
 }
 
+// Base weights match the rubric v2.0 cloud profile (rubric.schema.json).
 export const CATEGORY_MAX: Record<string, number> = {
-  persistent_guidance: 15,
-  scoped_rules: 10,
+  persistent_guidance: 12,
+  scoped_rules: 8,
   skills: 10,
-  specialized_agents: 10,
-  tool_manifests_mcp: 10,
-  validation_reproducibility: 10,
+  specialized_agents: 6,
+  tool_manifests_mcp: 6,
+  validation_reproducibility: 15,
   ci_pr_automation: 10,
-  security_sandboxing_hooks: 10,
-  domain_context: 5,
-  governance_observability: 5,
+  security_sandboxing_hooks: 12,
+  domain_context: 8,
+  governance_observability: 7,
   versioning_provenance: 3,
-  onboarding_discoverability: 2
+  onboarding_discoverability: 3
 };
 
 export const CATEGORY_LABELS: Record<string, string> = {
@@ -81,6 +82,36 @@ export const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export type HealthBand = string;
+
+export const LOCAL_MODEL_TIERS = ['tiny', 'small', 'medium'] as const;
+export type LocalModelTier = typeof LOCAL_MODEL_TIERS[number];
+export const DEFAULT_LOCAL_MODEL_TIER: LocalModelTier = 'medium';
+
+export function localProfileKey(tier: LocalModelTier): string {
+  return `local-${tier}`;
+}
+
+export interface ProfileGuidanceBudget {
+  tool: string;
+  files: string[];
+  estimatedTokens: number;
+  budget: number;
+  factor: number;
+  withinBudget: boolean;
+}
+
+export interface ProfileScore {
+  key: string;
+  label: string;
+  sizeRange?: string;
+  score: number;
+  band: HealthBand;
+  weights: CategoryScores;
+  categories: CategoryScores;
+  guidanceBudget?: ProfileGuidanceBudget;
+  consistencyChecks: ConsistencyCheckResult[];
+  riskFlags: string[];
+}
 
 export interface ScoreResult {
   evaluationMode?: EvaluationMode;
@@ -105,6 +136,7 @@ export interface ScoreResult {
   categoryRationales?: CategoryRationales;
   appliedCaps?: AppliedScoreCap[];
   consistencyChecks?: ConsistencyCheckResult[];
+  profileScores?: Record<string, ProfileScore>;
   qualityFlags: string[];
   riskFlags: string[];
   recommendations: string[];

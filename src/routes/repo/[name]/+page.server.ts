@@ -3,7 +3,8 @@ import { error } from '@sveltejs/kit';
 import { readRepoConfig } from '$lib/server/repoConfig';
 import { storage } from '$lib/server/storage';
 import { evaluationModeDefinition, listEvaluationModes, parseEvaluationMode, readEvaluationRubric } from '$lib/evaluationModes';
-import type { RepoConfig } from '$lib/types';
+import { readAppSettings } from '$lib/server/appSettings';
+import { localProfileKey, type RepoConfig } from '$lib/types';
 
 export const load: PageServerLoad = async ({ params, url }) => {
   const { name } = params;
@@ -29,5 +30,22 @@ export const load: PageServerLoad = async ({ params, url }) => {
     categoryLabels: rubricDefinition.categoryLabels
   };
 
-  return { name, repoPath: repo.path, result, improvementPlan, scoreHistory, rubric, mode, modeDefinition: evaluationModeDefinition(mode), modes: listEvaluationModes() };
+  const { localModelTier } = await readAppSettings();
+  const isStaleRubric = Boolean(result) && result?.rubricVersion !== rubricDefinition.version;
+
+  return {
+    name,
+    repoPath: repo.path,
+    result,
+    improvementPlan,
+    scoreHistory,
+    rubric,
+    mode,
+    modeDefinition: evaluationModeDefinition(mode),
+    modes: listEvaluationModes(),
+    isStaleRubric,
+    hasProfiles: Boolean(rubricDefinition.profiles?.length),
+    localModelTier,
+    localProfileKey: localProfileKey(localModelTier)
+  };
 };

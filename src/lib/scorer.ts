@@ -4,11 +4,13 @@ import { buildCategoryPrompt, buildPrompt } from './promptBuilder';
 import { callLLM } from './llmClient';
 import { applyEvidenceCaps } from './scoreCaps';
 import { applyConsistencyChecks } from './consistencyChecks';
+import { computeProfileScores } from './profileScores';
 import { updateScoringProgress, withScoreWriteLock } from './server/scoreConcurrency';
 import { appendScoreHistory } from './scoreHistory';
 import { CATEGORY_MAX, DEFAULT_EVALUATION_MODE, bandForScore } from './types';
 import { storage } from './server/storage';
 import type { RuntimeSupportMatrix } from './reference/runtimeSupport';
+import type { GuidanceTool } from './scanner';
 import type { CategoryRationale, CategoryRationales, CategoryScores, EvaluationMode, LLMConfig, LLMResponseFormat, ScoreResult, ScoresStore, StructuredGap } from './types';
 import type { RubricCategoryDefinition, RubricDefinition } from './rubricSchema';
 
@@ -189,9 +191,9 @@ export async function scoreRepo(
   rubricDefinition?: RubricDefinition,
   historyPath?: string,
   evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE,
-  metadata: Pick<ScoreResult, 'referenceDataVersion' | 'referenceDataLastUpdated' | 'scannerEvidenceVersion'> & { runtimeSupport?: RuntimeSupportMatrix } = {}
+  metadata: Pick<ScoreResult, 'referenceDataVersion' | 'referenceDataLastUpdated' | 'scannerEvidenceVersion'> & { runtimeSupport?: RuntimeSupportMatrix; guidanceTool?: GuidanceTool } = {}
 ): Promise<ScoreResult> {
-  const { runtimeSupport, ...scoreMetadata } = metadata;
+  const { runtimeSupport, guidanceTool, ...scoreMetadata } = metadata;
   updateScoringProgress(name, {
     evaluationMode,
     phase: 'scan',
@@ -220,6 +222,10 @@ export async function scoreRepo(
       totalSteps: rubricDefinition.categories.length + 4
     });
     result = applyConsistencyChecks(result, scan.evidence, rubricDefinition);
+    const profileScores = computeProfileScores(result, scan.evidence, rubricDefinition, guidanceTool);
+    if (profileScores) {
+      result = { ...result, resultVersion: 3, profileScores };
+    }
     result = { ...result, ...scoreMetadata };
     result.scoredAt = new Date().toISOString();
     updateScoringProgress(name, {
@@ -589,18 +595,7 @@ Required schema:
   "band": <"Fragile" | "Emerging" | "Operational" | "Managed" | "Mature">,
   "primaryLanguage": <string>,
   "categories": {
-    "persistent_guidance": <integer 0-15>,
-    "scoped_rules": <integer 0-10>,
-    "skills": <integer 0-10>,
-    "specialized_agents": <integer 0-10>,
-    "tool_manifests_mcp": <integer 0-10>,
-    "validation_reproducibility": <integer 0-10>,
-    "ci_pr_automation": <integer 0-10>,
-    "security_sandboxing_hooks": <integer 0-10>,
-    "domain_context": <integer 0-5>,
-    "governance_observability": <integer 0-5>,
-    "versioning_provenance": <integer 0-3>,
-    "onboarding_discoverability": <integer 0-2>
+${CATEGORY_KEYS.map(key => `    "${key}": <integer 0-${CATEGORY_MAX[key]}>`).join(',\n')}
   },
   "categoryRationales": {
     "<category_key>": {

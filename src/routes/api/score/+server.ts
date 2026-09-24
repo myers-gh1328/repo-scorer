@@ -48,7 +48,7 @@ export const POST: RequestHandler = async ({ request }) => {
       ? await readRuntimeSupportMatrix(modeDefinition.referenceDataPath)
       : null;
 
-    const { llmBaseUrl, llmModel, useJsonSchema } = await readAppSettings();
+    const { llmBaseUrl, llmModel, useJsonSchema, aiTooling } = await readAppSettings();
 
     const result = await scoreRepo(name, path, rubric, {
       baseUrl: llmBaseUrl,
@@ -56,7 +56,8 @@ export const POST: RequestHandler = async ({ request }) => {
       maxTokens: 4096,
       responseFormat: useJsonSchema ? scoreResponseFormatForRubric(rubricDefinition) : undefined
     }, undefined, rubricDefinition, undefined, mode, {
-      scannerEvidenceVersion: '2026-06-26.1',
+      scannerEvidenceVersion: '2026-09-24.1',
+      guidanceTool: aiTooling,
       ...(runtimeSupport ? {
         referenceDataVersion: runtimeSupport.version,
         referenceDataLastUpdated: runtimeSupport.lastUpdated,

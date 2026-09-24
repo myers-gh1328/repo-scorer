@@ -1,7 +1,7 @@
 # Agentic Repository Maturity Guide and Scorecard - 2026
 
-**Version:** 1.0  
-**Date:** May 18, 2026  
+**Version:** 2.0  
+**Date:** September 24, 2026 (v1.0: May 18, 2026)  
 **Audience:** Engineering managers, platform teams, security teams, staff engineers, repo maintainers, and developers using AI coding agents
 
 ---
@@ -32,7 +32,11 @@ This guide is intentionally host-aware but not host-locked. For a Cursor-heavy o
 - Add MCP only where external tools or data are truly needed, and govern it carefully.
 - Add hooks and sandbox/approval controls for production-critical or security-sensitive repos.
 
-One caution: more context is not automatically better. A 2026 evaluation of repository-level context files found that context files can reduce task success and increase inference cost when they add unnecessary requirements. Mature repos should provide concise, accurate, scoped, testable guidance rather than large prompt dumps. [27]
+One caution: more context is not automatically better. A 2026 evaluation of repository-level context files found that context files can reduce task success and increase inference cost by over 20% when they add unnecessary requirements, and recommends that they describe only minimal requirements. [27] Another 2026 study found `AGENTS.md` associated with lower agent runtime and token use at comparable task completion. [28] Mature repos should provide concise, accurate, scoped, testable guidance rather than large prompt dumps.
+
+A second caution: the evidence for the more advanced mechanisms is thin. The configuration study above measures how often repos adopt skills, subagents, and MCP, not whether they improve agent results. [26] This guide therefore weights validation, reproducibility, and concise guidance more heavily than the presence of advanced mechanisms.
+
+Version 2.0 adds **score profiles** (Section 6.1): a Cloud score for hosted frontier models, plus Local scores for models that run on consumer hardware. Small local models have much tighter context budgets and weaker multi-turn tool use, so the same repo can be well configured for one and poorly configured for the other.
 
 ---
 
@@ -135,7 +139,7 @@ Expected artifacts:
 Expected artifacts and practices:
 
 - Hooks, sandboxing, deny rules, approvals, and least-privilege tool controls.
-- Approved MCP registry or allowlist.
+- Approved MCP registry or allowlist where MCP is used.
 - Review controls for AI-context files.
 - CI linting for rules, skills, hooks, MCP configs, and frontmatter.
 - Observability through logs, analytics, audit events, or telemetry where appropriate.
@@ -154,7 +158,7 @@ Expected artifacts and practices:
 
 Persistent guidance files are the durable instructions an AI agent should read before working in a repo. They should explain what the repo is, how to set it up, how to validate changes, what architecture patterns to preserve, and what not to touch.
 
-`AGENTS.md` is the strongest portable baseline. The public AGENTS.md format describes it as a "README for agents," separate from the human-facing README, and recommends including build steps, tests, conventions, and security considerations. It is standard Markdown with no required fields. [1] OpenAI Codex reads `AGENTS.md` files before work and layers global, root, and nested project guidance. [2] GitHub Copilot supports repository-wide instructions, path-specific instructions, and `AGENTS.md`; Copilot uses the nearest `AGENTS.md` in the directory tree for agent instructions. [3] Root `.cursorrules` may satisfy the persistent guidance requirement for older Cursor-enabled repos, but it is deprecated and should be renamed or consolidated into root `AGENTS.md`.
+`AGENTS.md` is the strongest portable baseline. The public AGENTS.md format describes it as a "README for agents," separate from the human-facing README, and recommends including build steps, tests, conventions, and security considerations. It is standard Markdown with no required fields. [1] OpenAI Codex reads `AGENTS.md` files before work and layers global, root, and nested project guidance. [2] GitHub Copilot supports repository-wide instructions, path-specific instructions, and `AGENTS.md`; Copilot uses the nearest `AGENTS.md` in the directory tree for agent instructions. [3] Claude Code reads `AGENTS.md` as project instructions without an import or setting, but only when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` is present; if one is, Claude reads only the `CLAUDE.md` files unless they import `@AGENTS.md`. [15] Codex also honors `AGENTS.override.md` for local overrides. [2] The AGENTS.md format is now stewarded by the Agentic AI Foundation under the Linux Foundation. [1] Root `.cursorrules` may satisfy the persistent guidance requirement for older Cursor-enabled repos, but it is deprecated and should be renamed or consolidated into root `AGENTS.md`.
 
 **Manager takeaway**
 
@@ -164,7 +168,9 @@ Every active repo should have one canonical machine-readable starting point. For
 
 A good persistent guidance file:
 
-- Is short enough to stay useful.
+- Is short enough to stay useful. Always-on guidance competes with task context on every request; small local models lose accuracy after roughly 1-2K tokens of context, so Local score profiles enforce a token budget (Section 6.1).
+- Contains only guidance an agent cannot infer from the code itself.
+- Keeps volatile content (dates, generated sections) out of always-on files so prompt caching stays effective.
 - Lists exact setup, build, lint, test, typecheck, and verification commands.
 - Names the primary language, framework, runtime, package manager, and test runner.
 - Explains high-level architecture boundaries.
@@ -230,6 +236,8 @@ Before opening a PR, run:
 - Root `.cursorrules`, when present, is flagged for consolidation into root `AGENTS.md`.
 - Nested `AGENTS.md` files exist for major packages/subtrees if the repo is a monorepo or multi-service repo.
 - Tool-specific guidance files do not conflict with `AGENTS.md`.
+- A root `CLAUDE.md` that coexists with `AGENTS.md` imports it (`@AGENTS.md`); otherwise Claude Code ignores `AGENTS.md`.
+- `CLAUDE.local.md`, when present, is gitignored.
 
 **Nested guidance applicability**
 
@@ -314,7 +322,7 @@ alwaysApply: false
 
 Skills are reusable workflow packages. A skill usually contains a `SKILL.md` file plus optional scripts, references, examples, templates, or assets. Skills are meant for procedures: "how to debug this service," "how to add an endpoint," "how to prepare release notes," or "how to update a contract."
 
-Cursor describes Agent Skills as an open standard for packaging reusable knowledge and scripts. [5] OpenAI Codex documents skills as directories with required `SKILL.md` files plus optional `scripts/`, `references/`, `assets/`, and `agents/`; Codex uses progressive disclosure so it initially loads skill names/descriptions and reads the full skill only when selected. [22] VS Code says Agent Skills are folders of instructions, scripts, and resources that GitHub Copilot can load when relevant and that the standard is portable across multiple agents. [11] Claude Code also uses `SKILL.md` packages and recommends skills when repeated instructions or multi-step procedures outgrow persistent memory files. [13]
+Cursor describes Agent Skills as an open standard for packaging reusable knowledge and scripts. [5] OpenAI Codex documents skills as directories with required `SKILL.md` files plus optional `scripts/`, `references/`, `assets/`, and `agents/`; Codex uses progressive disclosure so it initially loads skill names/descriptions and reads the full skill only when selected. [22] VS Code says Agent Skills are folders of instructions, scripts, and resources that GitHub Copilot can load when relevant and that the standard is portable across multiple agents. [11] Claude Code also uses `SKILL.md` packages and recommends skills when repeated instructions or multi-step procedures outgrow persistent memory files. [13] The Agent Skills specification requires `name` (which must match the parent directory name) and `description`. [29] Codex reads project skills from both `.agents/skills` and `.codex/skills`; Gemini CLI reads `.gemini/skills` or the `.agents/skills` alias. [22, 20] `.agents/skills` is the most portable location across agents, including agents run on local models.
 
 **Manager takeaway**
 
@@ -327,12 +335,13 @@ Persistent guidance tells agents what is generally true. Skills tell agents how 
 .cursor/skills/**/SKILL.md
 .claude/skills/**/SKILL.md
 .codex/skills/**/SKILL.md
+.gemini/skills/**/SKILL.md
 .github/skills/**/SKILL.md
 ```
 
 **Good skills**
 
-- Have a clear `name` and `description`.
+- Have a clear `name` that matches the skill directory, and a `description`.
 - State when to use the skill and when not to use it.
 - Include exact steps, inputs, outputs, and validation.
 - Move long reference material into supporting files.
@@ -406,7 +415,7 @@ Use this skill when:
 
 Specialized agents are named roles with focused instructions, tool access, and sometimes model preferences. They are useful when a task benefits from isolation, independent review, or parallelism.
 
-VS Code custom agents are `.agent.md` files that define a persona, tools, instructions, and optional handoffs; the docs recommend read-only tools for planning agents and least-privilege tool access for security-sensitive workflows. [10] Claude Code project subagents live in `.claude/agents/`, use Markdown plus YAML frontmatter, and can define tools, models, permission mode, MCP servers, skills, background execution, and isolation. [16] Codex supports subagent workflows by spawning specialized agents in parallel and collecting their results. [24] Cursor also documents subagents for specialized AI workflows and context management. [6]
+VS Code custom agents are `.agent.md` files that define a persona, tools, instructions, and optional handoffs; the docs recommend read-only tools for planning agents and least-privilege tool access for security-sensitive workflows. [10] Claude Code project subagents live in `.claude/agents/`, use Markdown plus YAML frontmatter, and can define `tools`, `disallowedTools`, model, permission mode, MCP servers, skills, hooks, background execution, and isolation. [16] Codex supports subagent workflows by spawning specialized agents in parallel; project agent roles are TOML files in `.codex/agents/`. [24] Gemini CLI project subagents live in `.gemini/agents/*.md`. [20] Cursor also documents subagents for specialized AI workflows and context management. [6]
 
 **Manager takeaway**
 
@@ -418,11 +427,12 @@ Do not create a dozen generic "helper" agents. Start with a few high-value roles
 .cursor/agents/**/*.md
 .github/agents/**/*.md
 .claude/agents/**/*.md
-.codex/agents/**/*
+.codex/agents/**/*.toml
+.gemini/agents/**/*.md
 *.agent.md
 ```
 
-**Example verifier agent**
+**Example verifier agent (Cursor frontmatter; in Claude Code use `tools` or `disallowedTools` instead of `readonly`)**
 
 ```md
 ---
@@ -472,16 +482,16 @@ Do not accept implementation claims at face value. Verify them.
 
 Prompt files and commands are reusable prompts for human-invoked workflows. They are good for tasks that are repeated but do not require a full reusable skill or specialized agent.
 
-VS Code's customization model includes prompt files for common workflows, custom instructions, custom agents, skills, MCP servers, and hooks. [9] VS Code custom agents documentation distinguishes custom agents from prompt files and skills: use custom agents for persistent personas/tool restrictions, prompt files for one-off tasks, and skills for portable workflows with scripts/resources. [10] Claude Code documents that command files still work but skills are now recommended for workflows with supporting files. [13]
+VS Code's customization model includes prompt files for common workflows, custom instructions, custom agents, skills, MCP servers, and hooks. [9] VS Code custom agents documentation distinguishes custom agents from prompt files and skills: use custom agents for persistent personas/tool restrictions, prompt files for one-off tasks, and skills for portable workflows with scripts/resources. [10] Claude Code has merged custom commands into skills; existing `.claude/commands/` files keep working. [13] VS Code now deprecates prompt files for Agent Host sessions and provides a migration to agent skills; `.chatmode.md` files should be renamed to `.agent.md`. [9, 10]
 
 **Manager takeaway**
 
-Commands and prompt files are useful, but they should not be mandatory for every repo. Treat them as a workflow maturity signal.
+Commands and prompt files are useful, but they should not be mandatory for every repo. Treat them as a legacy workflow signal: they earn partial credit, and repos should migrate them to skills.
 
 **Common scan targets**
 
 ```text
-.github/prompts/**/*.prompt.md
+.github/prompts/**/*.prompt.md  (legacy)
 .cursor/commands/**
 .claude/commands/**/*.md
 .gemini/commands/**
@@ -533,11 +543,13 @@ Return:
 
 MCP, the Model Context Protocol, is an open standard for connecting AI assistants to external systems such as content repositories, business tools, development environments, databases, and APIs. Anthropic introduced MCP as a standard for secure two-way connections between data sources and AI-powered tools. [21]
 
-Cursor documents MCP as a way to connect Cursor to external tools and data sources. [8] Claude Code supports project-scoped `.mcp.json` files that can be checked into version control, plus managed MCP controls, allowlists, and denylists for organizations. [18] Codex stores MCP and sandbox/approval configuration through `config.toml` layers. [23]
+Cursor documents MCP as a way to connect Cursor to external tools and data sources. [8] Claude Code supports project-scoped `.mcp.json` files that can be checked into version control, plus managed MCP controls, allowlists, and denylists for organizations. [18] Codex stores MCP and sandbox/approval configuration through `config.toml` layers. [23] The current MCP specification version is 2026-07-28, which removes the initialization handshake and tightens authorization validation; its security best practices cover local server compromise and token passthrough. [30]
 
 **Manager takeaway**
 
 MCP is powerful but not required in every repo. It should be used when agents need legitimate access to external tools or data. If MCP is present, it must be governed like any other automation access path.
+
+Score this category as neutral when the repo shows no external-system need: a missing MCP file is not a gap. Vendor guidance is to add MCP when a need appears and only from trusted sources. [18, 9] MCP configuration can also live outside the repo (for example, GitHub cloud-agent repository settings) or inside plugins. Each MCP server's tool schemas also consume context, which matters most for small local models.
 
 **Common scan targets**
 
@@ -596,7 +608,7 @@ Risky MCP configuration:
 
 **Scanner checks**
 
-- MCP config exists only where there is a use case.
+- MCP config exists only where there is a use case; absence is neutral when no external need exists.
 - No hardcoded secrets.
 - Server purpose is documented.
 - Executable dependencies are pinned or otherwise controlled.
@@ -611,7 +623,7 @@ Risky MCP configuration:
 
 Hooks are deterministic actions that run at lifecycle events, such as before a tool call, after a file edit, or when an agent stops. They can block unsafe commands, run formatters, scan for secrets, log tool use, or require approvals.
 
-VS Code describes hooks as a way to run shell commands at lifecycle points, such as running a formatter after file edits or enforcing security policies. [9] Claude Code hooks receive structured JSON input, can return decisions or messages, and respect managed settings hierarchy. [17] Codex supports sandbox and approval settings such as `read-only`, `workspace-write`, `danger-full-access`, `untrusted`, `on-request`, and `never`. [25] Claude Code settings define managed, user, project, and local scopes, with managed settings used for organization-wide security and compliance. [14]
+VS Code describes hooks as a way to run shell commands at lifecycle points, such as running a formatter after file edits or enforcing security policies. [9] Claude Code hooks receive structured JSON input, can return decisions or messages, and respect managed settings hierarchy. [17] Codex supports sandbox modes `read-only`, `workspace-write`, and `danger-full-access`, and approval policies such as `untrusted`, `on-request`, `never`, and `granular` (`on-failure` is now an alias of `on-request`). Codex also loads project hooks from `.codex/hooks.json`. [25] Gemini CLI configures hooks in `.gemini/settings.json`. [20] Claude Code settings define managed, user, project, and local scopes, with managed settings used for organization-wide security and compliance. [14]
 
 **Manager takeaway**
 
@@ -625,8 +637,11 @@ Instructions ask the model to behave. Hooks and sandbox settings enforce behavio
 .claude/settings.json
 .claude/settings.local.json
 .codex/config.toml
-.codex/requirements.toml
+.codex/hooks.json
+.gemini/settings.json
 ```
+
+`.codex/requirements.toml` is read from system or MDM locations by administrators; treat it as governance evidence, not a repo file.
 
 **Example hook config**
 
@@ -728,6 +743,8 @@ docker-compose.yml
 - Expected failure modes and workarounds.
 - CI job names that match local commands.
 - Guidance for when tests are unavailable or flaky.
+- A narrow test command (single file or package), not only the full suite. Small local models benefit most from fast, focused feedback.
+- Cloud-agent environment setup where cloud agents are used: `.github/workflows/copilot-setup-steps.yml` for Copilot, setup scripts or SessionStart hooks for Claude Code on the web, or a devcontainer. [31, 32]
 
 **Example validation section**
 
@@ -752,6 +769,7 @@ If a test requires local services, start them with:
 - Local environment setup is documented.
 - CI workflow exists for production repos.
 - Repos with complex setup include Docker, devcontainer, Makefile, justfile, or equivalent reproducibility support.
+- Environment setup is hard for agents without help (state-of-the-art success on the EnvBench setup benchmark is under 30%), so reproducible setup earns meaningful credit. [33]
 
 ---
 
@@ -860,17 +878,20 @@ contracts/
 
 | Tool ecosystem | Persistent guidance | Scoped rules | Skills | Agents/subagents | MCP/tool config | Hooks/settings |
 |---|---|---|---|---|---|---|
-| Cursor | `AGENTS.md` plus Cursor rules; root `.cursorrules` is deprecated legacy guidance | `.cursor/rules/**` | `.cursor/skills/**/SKILL.md`, `.agents/skills/**/SKILL.md` | `.cursor/agents/**` | `.cursor/mcp.json` | `.cursor/hooks.json`, Cursor settings |
-| GitHub Copilot / VS Code | `.github/copilot-instructions.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` | `.github/instructions/*.instructions.md` | `.github/skills/**/SKILL.md`, `.agents/skills/**/SKILL.md` | `.github/agents/*.agent.md` | `.vscode/mcp.json`, repo or org MCP config | `.github/hooks/*.json`, VS Code settings |
-| OpenAI Codex | `AGENTS.md`, nested `AGENTS.md`, optional fallbacks | Codex rules/config where used | `.agents/skills/**/SKILL.md` | Codex subagents/custom agents | `.codex/config.toml` | `.codex/config.toml`, `requirements.toml` |
-| Claude Code | `CLAUDE.md`, `.claude/CLAUDE.md`, optional import/reference to `AGENTS.md` | `.claude/rules/**` | `.claude/skills/**/SKILL.md` | `.claude/agents/**` | `.mcp.json`, managed MCP | `.claude/settings*.json`, managed settings |
-| Gemini CLI | `GEMINI.md` | Tool-specific settings/context hierarchy | Tool-dependent | Tool-dependent | `.gemini/settings.json` | Gemini settings |
+| Cursor | `AGENTS.md` plus Cursor rules; root `.cursorrules` is deprecated legacy guidance | `.cursor/rules/**` (`.mdc` with `description`, `alwaysApply`, `globs`) | `.cursor/skills/**/SKILL.md`, `.agents/skills/**/SKILL.md` | `.cursor/agents/**` | `.cursor/mcp.json` | `.cursor/hooks.json`, Cursor settings; plugins in `.cursor-plugin/plugin.json` |
+| GitHub Copilot (github.com / cloud agent) | `.github/copilot-instructions.md`, `AGENTS.md`, root `CLAUDE.md` or `GEMINI.md` | `.github/instructions/*.instructions.md` (`applyTo`) | `.github/skills/**/SKILL.md` | `.github/agents/*.agent.md` | Repository settings (not a repo file) | `.github/hooks/*.json`; environment in `.github/workflows/copilot-setup-steps.yml` |
+| VS Code | `.github/copilot-instructions.md`, `AGENTS.md` (nested files off by default), `CLAUDE.md` | `.github/instructions/*.instructions.md` | `.github/skills`, `.claude/skills`, `.agents/skills` | `.github/agents/*.agent.md`, `.claude/agents` (`.chatmode.md` is legacy) | `.vscode/mcp.json`, root `.mcp.json` | `.github/hooks/*.json`; Agent Plugins (`plugin.json`) |
+| OpenAI Codex | `AGENTS.md`, nested `AGENTS.md`, `AGENTS.override.md` | Codex rules/config where used | `.agents/skills/**/SKILL.md`, `.codex/skills/**/SKILL.md` | `.codex/agents/*.toml` | `.codex/config.toml` (`[mcp_servers]`) | `.codex/hooks.json`, `.codex/config.toml`; `requirements.toml` is admin-managed |
+| Claude Code | `CLAUDE.md`, `.claude/CLAUDE.md`, or `AGENTS.md` when no `CLAUDE.md` exists; `CLAUDE.local.md` (gitignored) | `.claude/rules/**` (`paths` frontmatter) | `.claude/skills/**/SKILL.md` (`.claude/commands` is legacy) | `.claude/agents/**` | `.mcp.json`, managed MCP | `.claude/settings*.json`, managed settings; plugins in `.claude-plugin/`; output styles in `.claude/output-styles/` |
+| Gemini CLI | `GEMINI.md`, or `AGENTS.md` via `context.fileName` | Tool-specific settings/context hierarchy | `.gemini/skills/**/SKILL.md`, `.agents/skills` | `.gemini/agents/*.md` | `.gemini/settings.json` | Hooks in `.gemini/settings.json`; `.gemini/commands`; extensions (`gemini-extension.json`) |
 
 Notes:
 
 - `AGENTS.md` is the best portable baseline, but tool-native files still matter.
 - Claude Code's native persistent context is `CLAUDE.md`; Gemini CLI's native context file is `GEMINI.md`. [15, 20]
-- Avoid divergent truth. Prefer one canonical source and thin wrappers/imports where possible.
+- Avoid divergent truth. Prefer one canonical source and thin wrappers/imports where possible. A `CLAUDE.md` that exists alongside `AGENTS.md` should import it.
+- Local-model agent harnesses (for example Codex, OpenCode, Goose, Roo Code, Cline, Crush, Zed, Qwen Code, Mistral Vibe) broadly read `AGENTS.md` and `.agents/skills`; hook, subagent, and path-scoped rule formats are mostly tool-specific.
+- Windsurf mappings are not listed because current Windsurf/Devin documentation could not be verified for v2.0.
 
 ---
 
@@ -923,18 +944,20 @@ Score each repo out of 100. Use this score to prioritize remediation, not to pun
 
 | Category | Weight | What to evaluate |
 |---|---:|---|
-| Persistent guidance | 15 | `AGENTS.md` or equivalent exists, is current, concise, accurate, and includes exact commands and safety boundaries; root `.cursorrules` counts as deprecated persistent guidance; nested guidance is expected only for multi-project or multi-service repos |
-| Scoped rules | 10 | Cursor/Copilot/Claude path-scoped rules exist where useful and are actionable |
-| Skills | 10 | `SKILL.md` packages cover repeated workflows and include clear triggers and supporting files where useful |
-| Specialized agents | 10 | Verifier, test, security, debug, or other focused agents exist where useful and use least-privilege tools |
-| Tool manifests and MCP | 10 | External tools are configured only where needed, secrets are externalized, and access is governed |
-| Validation and reproducibility | 10 | Agent-readable validation commands match real scripts/CI and the environment is reproducible |
+| Persistent guidance | 12 | `AGENTS.md` or equivalent exists and is concise, accurate, and limited to non-inferable guidance: exact commands, safety boundaries, and pointers to canonical docs. Reward brevity; long always-on files and content an agent could infer from the code are quality risks. Claude Code reads `AGENTS.md` natively unless a `CLAUDE.md` shadows it without importing it; root `.cursorrules` counts as deprecated persistent guidance; nested guidance is expected only for multi-project or multi-service repos |
+| Scoped rules | 8 | Cursor/Copilot/Claude path-scoped rules exist where useful, are actionable, and keep guidance out of always-on context |
+| Skills | 10 | `SKILL.md` packages cover repeated workflows with clear triggers, a `name` matching the skill directory, and supporting files where useful; portable `.agents/skills` locations work across the most agents. Legacy prompt files and commands earn partial credit |
+| Specialized agents | 6 | Verifier, test, security, debug, or other focused agents exist where useful and use least-privilege tools. Evidence for performance benefit is limited, so do not treat missing agents as a major gap for simple repos |
+| Tool manifests and MCP | 6 | External tools are configured only where needed, secrets are externalized, and access is governed. Score as neutral (full or near-full credit) when the repo shows no external-system need; reduce the score only when an external need exists without governed access, or when MCP/tool configs are ungoverned, unpinned, or hold secrets |
+| Validation and reproducibility | 15 | Agent-readable validation commands, including a narrow single-file or single-package test command, match real scripts/CI; the environment is reproducible through lockfiles, devcontainers, or cloud-agent setup such as `copilot-setup-steps.yml` or setup scripts |
 | CI and PR automation | 10 | CI validates normal work and checks agent assets or AI-assisted PRs where appropriate |
-| Security, sandboxing, and hooks | 10 | Hooks, deny rules, sandbox settings, approvals, and secret controls exist for risky workflows |
-| Domain and decision context | 5 | ADRs, contracts, glossary, examples, fixtures, and templates are available and referenced |
-| Governance and observability | 5 | Owners, review cadence, managed settings, logs, metrics, or dashboards exist where appropriate |
+| Security, sandboxing, and hooks | 12 | Hooks, deny rules, sandbox settings, approvals, and secret controls exist for risky workflows |
+| Domain and decision context | 8 | ADRs, contracts, glossary, examples, fixtures, and templates are available and referenced |
+| Governance and observability | 7 | Owners, review cadence, managed settings, logs, metrics, or dashboards exist where appropriate |
 | Versioning and dependency provenance | 3 | Agent assets are version-controlled; executable MCP/hook/skill dependencies are pinned or governed |
-| Onboarding and discoverability | 2 | README or equivalent tells humans where agent guidance, rules, skills, and workflows live |
+| Onboarding and discoverability | 3 | README or equivalent tells humans where agent guidance, rules, skills, and workflows live |
+
+These weights are the **Cloud** profile and the base scale that category judgments use.
 
 ### Health bands
 
@@ -957,6 +980,32 @@ Score each repo out of 100. Use this score to prioritize remediation, not to pun
 | 4 | Enforced, reviewed, and aligned with CI or policy |
 | 5 | Managed at org scale with observability, ownership, and measured effectiveness |
 
+### 6.1 Score profiles: Cloud and Local
+
+Every scored repo gets a Cloud score and a score for each Local tier. All profiles reuse the same category judgments: each category contributes the same fraction of its weight, re-weighted per profile. Users choose which Local tier to display. Pick the tier by the model's **total** parameters, since that determines whether it fits in memory; models larger than about 35B total parameters, including large open-weight models, use the Cloud score.
+
+| Category | Cloud | Local medium (~15-35B, incl. 30B-A3B/35B-A3B MoE) | Local small (~5-14B) | Local tiny (up to ~4B) |
+|---|---:|---:|---:|---:|
+| Persistent guidance | 12 | 20 | 21 | 22 |
+| Validation and reproducibility | 15 | 20 | 22 | 24 |
+| CI and PR automation | 10 | 8 | 8 | 8 |
+| Security, sandboxing, and hooks | 12 | 10 | 10 | 10 |
+| Skills | 10 | 10 | 8 | 6 |
+| Scoped rules | 8 | 8 | 8 | 8 |
+| Domain and decision context | 8 | 10 | 11 | 12 |
+| Specialized agents | 6 | 2 | 1 | 0 (N/A) |
+| Tool manifests and MCP | 6 | 4 | 3 | 2 |
+| Governance and observability | 7 | 3 | 3 | 2 |
+| Versioning and dependency provenance | 3 | 3 | 3 | 3 |
+| Onboarding and discoverability | 3 | 2 | 2 | 3 |
+| **Always-on guidance budget** | none | ~3,000 tokens | ~1,500 tokens | ~1,000 tokens |
+
+**Always-on guidance budget.** Local profiles measure the guidance the configured AI tool loads into every session, for example `AGENTS.md`, `CLAUDE.md`, `alwaysApply` Cursor rules, un-scoped `.claude/rules`, and `applyTo: "**"` Copilot instructions. Token counts are approximate (characters / 4). Persistent guidance keeps full credit at or under the budget, declines linearly to half credit at twice the budget, and stays at half credit beyond that with a risk flag. A Local profile cannot reach Mature while over budget.
+
+**Band constraints per profile.** Cloud applies all Mature constraints. Local profiles apply the reproducibility constraint and the guidance budget.
+
+**Why the profiles differ.** Small local models degrade quickly as context grows, trail frontier models most on multi-turn tool use and long-horizon terminal work, and default to small context windows on consumer hardware; tool-specific layers are also read by fewer local harnesses. They gain the most from short guidance, exact commands, and concrete examples. These weights are a reasoned starting point, not yet calibrated; see Phase 6 in Section 12 and `docs/rubric-updates/freshness-research/2026-09-24-1602-freshness-research-cloud-vs-local-scoring.md`.
+
 ---
 
 ## 7. Automated scanning specification
@@ -966,6 +1015,7 @@ Score each repo out of 100. Use this score to prioritize remediation, not to pun
 ```text
 AGENTS.md
 **/AGENTS.md
+AGENTS.override.md
 .cursorrules
 CLAUDE.md
 .claude/CLAUDE.md
@@ -995,10 +1045,19 @@ GEMINI.md
 .claude/settings.local.json
 .mcp.json
 .codex/config.toml
-.codex/requirements.toml
-.codex/agents/**
+.codex/hooks.json
+.codex/agents/**/*.toml
 .codex/skills/**/SKILL.md
 .gemini/settings.json
+.gemini/skills/**/SKILL.md
+.gemini/agents/**/*.md
+.vscode/mcp.json
+.claude-plugin/**
+.cursor-plugin/plugin.json
+plugin.json
+.claude/output-styles/**
+.claude/commands/**  (legacy)
+.github/workflows/copilot-setup-steps.yml
 .windsurf/workflows/**/*.md
 .windsurf/skills/**/SKILL.md
 .github/workflows/**/*.yml
@@ -1029,6 +1088,9 @@ Risk signals:
 
 - Vague instructions only.
 - Huge file with unrelated docs pasted in.
+- Always-on guidance above the Local tier budget (Section 6.1).
+- `CLAUDE.md` coexists with `AGENTS.md` without importing it.
+- Dates or generated content in always-on guidance.
 - No validation commands.
 - Conflicts with CI or README.
 - Multiple guidance files contradict each other.
@@ -1063,6 +1125,8 @@ Pass signals:
 Risk signals:
 
 - Skill description is too vague to trigger.
+- Skill `name` does not match its directory.
+- Unmigrated `.github/prompts/*.prompt.md` or `*.chatmode.md` files.
 - Skill does something risky automatically.
 - Skill contains long static reference material that should be moved to supporting files.
 
@@ -1123,6 +1187,10 @@ Risk signals:
   "primary_language": "TypeScript",
   "agent_maturity_score": 78,
   "health_band": "Managed",
+  "profile_scores": {
+    "cloud": { "score": 78, "band": "Managed" },
+    "local-medium": { "score": 71, "band": "Operational", "always_on_guidance_tokens": 2400 }
+  },
   "artifacts": {
     "agents_md": true,
     "nested_agents_md_count": 2,
@@ -1473,5 +1541,13 @@ description: Use when tests fail after code changes and the user wants root-caus
 [23] OpenAI Codex - Config basics. https://developers.openai.com/codex/config-basic  
 [24] OpenAI Codex - Subagents. https://developers.openai.com/codex/subagents  
 [25] OpenAI Codex - Sandbox and managed configuration. https://developers.openai.com/codex/concepts/sandboxing and https://developers.openai.com/codex/enterprise/managed-configuration  
-[26] Galster et al. - Configuring Agentic AI Coding Tools: An Exploratory Study. arXiv:2602.14690. https://arxiv.org/abs/2602.14690  
-[27] Gloaguen et al. - Evaluating AGENTS.md: Are Repository-Level Context Files Helpful for Coding Agents? arXiv:2602.11988. https://arxiv.org/abs/2602.11988
+[26] Galster et al. - Harness Engineering for Agentic AI Coding Tools: An Exploratory Study (originally "Configuring Agentic AI Coding Tools"). arXiv:2602.14690. https://arxiv.org/abs/2602.14690  
+[27] Gloaguen et al. - Evaluating AGENTS.md: Are Repository-Level Context Files Helpful for Coding Agents? arXiv:2602.11988. https://arxiv.org/abs/2602.11988  
+[28] Lulla et al. - AGENTS.md and agent efficiency. arXiv:2601.20404. https://arxiv.org/abs/2601.20404  
+[29] Agent Skills specification. https://github.com/agentskills/agentskills  
+[30] Model Context Protocol specification 2026-07-28 and security best practices. https://github.com/modelcontextprotocol/modelcontextprotocol  
+[31] GitHub Docs - Customizing the development environment for the Copilot cloud agent. https://github.com/github/docs  
+[32] Claude Code Docs - Cloud environments. https://code.claude.com/docs/en/cloud-environments  
+[33] JetBrains Research - EnvBench. https://github.com/JetBrains-Research/EnvBench  
+
+Section 6.1 capability and context evidence (NoLiMa, RULER, BFCL v4, SWE-bench experiments, Terminal-Bench runs, Ollama context defaults) is cited in `docs/rubric-updates/freshness-research/2026-09-24-1602-freshness-research-cloud-vs-local-scoring.md`.

@@ -18,6 +18,7 @@ afterEach(async () => {
 	delete process.env.REPO_SCORER_ENV_PATH;
 	delete process.env.LLM_BASE_URL;
 	delete process.env.LLM_MODEL;
+	delete process.env.LOCAL_MODEL_TIER;
 });
 
 describe('readAppSettings', () => {
@@ -73,5 +74,28 @@ describe('readAppSettings', () => {
 		});
 
 		expect(settings.llmModel).toBe('mlx-community/gemma-4-e4b-it-8bit');
+	});
+});
+
+describe('local model tier', () => {
+	it('defaults to medium and normalizes unknown values', async () => {
+		expect((await readAppSettings()).localModelTier).toBe('medium');
+
+		await writeFile(envFile, 'LOCAL_MODEL_TIER=huge\n');
+		expect((await readAppSettings()).localModelTier).toBe('medium');
+	});
+
+	it('persists a selected tier', async () => {
+		const settings = await writeAppSettings({
+			llmBaseUrl: 'http://localhost:8080',
+			llmModel: 'gpt-5.4-mini',
+			aiTooling: 'generic',
+			useJsonSchema: false,
+			localModelTier: 'small'
+		});
+
+		expect(settings.localModelTier).toBe('small');
+		expect(await readFile(envFile, 'utf-8')).toContain('LOCAL_MODEL_TIER=small');
+		expect((await readAppSettings()).localModelTier).toBe('small');
 	});
 });

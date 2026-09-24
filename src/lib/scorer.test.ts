@@ -8,15 +8,15 @@ vi.mock('./llmClient', () => ({ callLLM: vi.fn() }));
 import { parseScoreResult, scoreRepo } from './scorer';
 import { callLLM } from './llmClient';
 import { bandForScore } from './types';
-import type { RubricDefinition } from './rubricSchema';
+import { loadRubricDefinition, type RubricDefinition } from './rubricSchema';
 
 const mockResult = {
   score: 72,
   band: 'Operational',
   primaryLanguage: 'TypeScript',
   categories: {
-    persistent_guidance: 12, scoped_rules: 7, skills: 7, specialized_agents: 7,
-    tool_manifests_mcp: 7, validation_reproducibility: 7, ci_pr_automation: 7,
+    persistent_guidance: 12, scoped_rules: 7, skills: 7, specialized_agents: 6,
+    tool_manifests_mcp: 6, validation_reproducibility: 9, ci_pr_automation: 7,
     security_sandboxing_hooks: 7, domain_context: 4, governance_observability: 3,
     versioning_provenance: 2, onboarding_discoverability: 2
   },
@@ -59,7 +59,7 @@ describe('scoreRepo', () => {
 
   it('returns a ScoreResult with scoredAt populated', async () => {
     const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
-    expect(result.score).toBe(63);
+    expect(result.score).toBe(65);
     expect(result.rawScore).toBe(72);
     expect(result.band).toBe('Operational');
     expect(new Date(result.scoredAt).getTime()).toBeGreaterThan(0);
@@ -69,7 +69,7 @@ describe('scoreRepo', () => {
     await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
 
     const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
-    expect(stored.myrepo.score).toBe(63);
+    expect(stored.myrepo.score).toBe(65);
     expect(stored.myrepo.rawScore).toBe(72);
   });
 
@@ -81,12 +81,12 @@ describe('scoreRepo', () => {
     const stored = JSON.parse(await readFile(historyPath, 'utf-8'));
     expect(stored.myrepo.compact).toHaveLength(1);
     expect(stored.myrepo.compact[0]).toMatchObject({
-      finalScore: 63,
+      finalScore: 65,
       finalBand: 'Operational',
-      appliedCapCount: 3
+      appliedCapCount: 2
     });
     expect(stored.myrepo.full).toHaveLength(1);
-    expect(stored.myrepo.full[0].score).toBe(63);
+    expect(stored.myrepo.full[0].score).toBe(65);
   });
 
   it('preserves existing scores for other repos', async () => {
@@ -96,7 +96,7 @@ describe('scoreRepo', () => {
 
     const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
     expect(stored.otherapp.score).toBe(50);
-    expect(stored.myrepo.score).toBe(63);
+    expect(stored.myrepo.score).toBe(65);
   });
 
   it('preserves both results when different repos persist concurrently', async () => {
@@ -106,8 +106,8 @@ describe('scoreRepo', () => {
     ]);
 
     const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
-    expect(stored['repo-a'].score).toBe(63);
-    expect(stored['repo-b'].score).toBe(63);
+    expect(stored['repo-a'].score).toBe(65);
+    expect(stored['repo-b'].score).toBe(65);
   });
 
   it('throws LLM_UNREACHABLE when the LLM call fails', async () => {
@@ -124,7 +124,7 @@ describe('scoreRepo', () => {
       .mockResolvedValueOnce(JSON.stringify(mockResult));
 
     const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
-    expect(result.score).toBe(63);
+    expect(result.score).toBe(65);
     expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(2);
   });
 
@@ -145,16 +145,17 @@ describe('scoreRepo', () => {
     expect(result.rawCategories?.skills).toBe(10);
     expect(result.categories.skills).toBe(4);
     expect(result.categories.ci_pr_automation).toBe(3);
-    expect(result.categories.tool_manifests_mcp).toBe(5);
+    // A missing MCP manifest is neutral in rubric v2.0; the value is only clamped to the category max.
+    expect(result.categories.tool_manifests_mcp).toBe(6);
     expect(result.appliedCaps).toEqual(expect.arrayContaining([
       expect.objectContaining({ category: 'skills', originalScore: 10, cappedScore: 4 }),
-      expect.objectContaining({ category: 'ci_pr_automation', originalScore: 10, cappedScore: 3 }),
-      expect.objectContaining({ category: 'tool_manifests_mcp', originalScore: 10, cappedScore: 5 })
+      expect.objectContaining({ category: 'ci_pr_automation', originalScore: 10, cappedScore: 3 })
     ]));
+    expect(result.appliedCaps?.some(cap => cap.category === 'tool_manifests_mcp')).toBe(false);
 
     const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
     expect(stored.myrepo.rawCategories.skills).toBe(10);
-    expect(stored.myrepo.appliedCaps).toHaveLength(3);
+    expect(stored.myrepo.appliedCaps).toHaveLength(2);
   });
 
   it('applies caps after repair retry succeeds', async () => {
@@ -313,6 +314,29 @@ describe('scoreRepo', () => {
   });
 });
 
+describe('scoreRepo with rubric profiles', () => {
+  it('attaches cloud and local profile scores computed from the final categories', async () => {
+    vi.clearAllMocks();
+    const repoDir = await mkdtemp(join(tmpdir(), 'scorer-profiles-repo-'));
+    const outDir = await mkdtemp(join(tmpdir(), 'scorer-profiles-out-'));
+    await writeFile(join(repoDir, 'AGENTS.md'), 'y'.repeat(8_000));
+    const definition = loadRubricDefinition(await readFile('rubric.schema.json', 'utf-8'));
+    vi.mocked(callLLM).mockResolvedValue(JSON.stringify({ score: 999, evidence: ['AGENTS.md'], gaps: [] }));
+
+    const result = await scoreRepo(
+      'myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' },
+      join(outDir, 'scores.json'), definition, undefined, 'ai-readiness', { guidanceTool: 'generic' }
+    );
+
+    expect(result.resultVersion).toBe(3);
+    expect(result.rubricVersion).toBe('2.0');
+    expect(Object.keys(result.profileScores ?? {})).toEqual(['cloud', 'local-medium', 'local-small', 'local-tiny']);
+    expect(result.profileScores?.cloud.score).toBe(result.score);
+    expect(result.profileScores?.['local-medium'].guidanceBudget).toMatchObject({ estimatedTokens: 2000, withinBudget: true });
+    expect(result.profileScores?.['local-tiny'].guidanceBudget).toMatchObject({ estimatedTokens: 2000, factor: 0.5 });
+  });
+});
+
 describe('parseScoreResult', () => {
   it('parses raw JSON', () => {
     expect(parseScoreResult(JSON.stringify(mockResult)).score).toBe(72);
@@ -420,7 +444,7 @@ describe('parseScoreResult', () => {
 
     const result = parseScoreResult(raw);
 
-    expect(result.categories.persistent_guidance).toBe(15);
+    expect(result.categories.persistent_guidance).toBe(12);
     expect(result.categories.versioning_provenance).toBe(0);
   });
 

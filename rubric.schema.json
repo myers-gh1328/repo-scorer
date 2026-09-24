@@ -1,48 +1,48 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "totalScore": 100,
   "categories": [
     {
       "key": "persistent_guidance",
       "label": "Persistent guidance",
-      "weight": 15,
+      "weight": 12,
       "scannerSection": "Persistent guidance",
-      "evaluate": "`AGENTS.md` or equivalent exists, is current, concise, accurate, and includes exact commands and safety boundaries; root `.cursorrules` counts as deprecated persistent guidance; nested guidance is expected only for multi-project or multi-service repos"
+      "evaluate": "`AGENTS.md` or equivalent exists and is concise, accurate, and limited to non-inferable guidance: exact commands, safety boundaries, and pointers to canonical docs. Reward brevity; long always-on files and content an agent could infer from the code are quality risks. Claude Code reads `AGENTS.md` natively unless a `CLAUDE.md` shadows it without importing it; root `.cursorrules` counts as deprecated persistent guidance; nested guidance is expected only for multi-project or multi-service repos"
     },
     {
       "key": "scoped_rules",
       "label": "Scoped rules",
-      "weight": 10,
+      "weight": 8,
       "scannerSection": "Scoped rules",
-      "evaluate": "Cursor/Copilot/Claude path-scoped rules exist where useful and are actionable"
+      "evaluate": "Cursor/Copilot/Claude path-scoped rules exist where useful, are actionable, and keep guidance out of always-on context"
     },
     {
       "key": "skills",
       "label": "Skills",
       "weight": 10,
       "scannerSection": "Skills",
-      "evaluate": "`SKILL.md` packages cover repeated workflows and include clear triggers and supporting files where useful"
+      "evaluate": "`SKILL.md` packages cover repeated workflows with clear triggers, a `name` matching the skill directory, and supporting files where useful; portable `.agents/skills` locations work across the most agents. Legacy prompt files and commands earn partial credit"
     },
     {
       "key": "specialized_agents",
       "label": "Specialized agents",
-      "weight": 10,
+      "weight": 6,
       "scannerSection": "Specialized agents",
-      "evaluate": "Verifier, test, security, debug, or other focused agents exist where useful and use least-privilege tools"
+      "evaluate": "Verifier, test, security, debug, or other focused agents exist where useful and use least-privilege tools. Evidence for performance benefit is limited, so do not treat missing agents as a major gap for simple repos"
     },
     {
       "key": "tool_manifests_mcp",
       "label": "Tool manifests and MCP",
-      "weight": 10,
+      "weight": 6,
       "scannerSection": "MCP and tool configs",
-      "evaluate": "External tools are configured only where needed, secrets are externalized, and access is governed"
+      "evaluate": "External tools are configured only where needed, secrets are externalized, and access is governed. Score as neutral (full or near-full credit) when the repo shows no external-system need; reduce the score only when an external need exists without governed access, or when MCP/tool configs are ungoverned, unpinned, or hold secrets"
     },
     {
       "key": "validation_reproducibility",
       "label": "Validation and reproducibility",
-      "weight": 10,
+      "weight": 15,
       "scannerSection": "Validation and reproducibility",
-      "evaluate": "Agent-readable validation commands match real scripts/CI and the environment is reproducible"
+      "evaluate": "Agent-readable validation commands, including a narrow single-file or single-package test command, match real scripts/CI; the environment is reproducible through lockfiles, devcontainers, or cloud-agent setup such as `copilot-setup-steps.yml` or setup scripts"
     },
     {
       "key": "ci_pr_automation",
@@ -54,21 +54,21 @@
     {
       "key": "security_sandboxing_hooks",
       "label": "Security, sandboxing, and hooks",
-      "weight": 10,
+      "weight": 12,
       "scannerSection": "Hooks and sandboxing",
       "evaluate": "Hooks, deny rules, sandbox settings, approvals, and secret controls exist for risky workflows"
     },
     {
       "key": "domain_context",
       "label": "Domain and decision context",
-      "weight": 5,
+      "weight": 8,
       "scannerSection": "Domain and decision context",
       "evaluate": "ADRs, contracts, glossary, examples, fixtures, and templates are available and referenced"
     },
     {
       "key": "governance_observability",
       "label": "Governance and observability",
-      "weight": 5,
+      "weight": 7,
       "scannerSection": "Governance and observability",
       "evaluate": "Owners, review cadence, managed settings, logs, metrics, or dashboards exist where appropriate"
     },
@@ -82,7 +82,7 @@
     {
       "key": "onboarding_discoverability",
       "label": "Onboarding and discoverability",
-      "weight": 2,
+      "weight": 3,
       "scannerSection": "Onboarding and discoverability",
       "evaluate": "README or equivalent tells humans where agent guidance, rules, skills, and workflows live"
     }
@@ -124,36 +124,31 @@
       "category": "skills",
       "maxScore": 4,
       "reason": "No formal SKILL.md files found; adjacent workflow docs can earn only partial Skills credit",
-      "when": { "evidenceField": "hasFormalSkills", "equals": false }
+      "when": {
+        "evidenceField": "hasFormalSkills",
+        "equals": false
+      }
     },
     {
       "category": "ci_pr_automation",
       "maxScore": 3,
       "reason": "No GitHub Actions workflow files found",
-      "when": { "evidenceField": "hasCiWorkflow", "equals": false }
+      "when": {
+        "evidenceField": "hasCiWorkflow",
+        "equals": false
+      }
     },
     {
       "category": "ci_pr_automation",
       "maxScore": 6,
       "reason": "CI workflows exist but are not triggered by push or pull_request",
-      "when": { "evidenceField": "hasManualOnlyCi", "equals": true }
-    },
-    {
-      "category": "tool_manifests_mcp",
-      "maxScore": 5,
-      "reason": "No MCP or explicit tool manifest files found",
-      "when": { "evidenceField": "hasMcpManifest", "equals": false }
+      "when": {
+        "evidenceField": "hasManualOnlyCi",
+        "equals": true
+      }
     }
   ],
   "bandConstraints": [
-    {
-      "band": "Mature",
-      "check": "has_tool_access_governance",
-      "category": "tool_manifests_mcp",
-      "severity": "high",
-      "requirement": "Mature repositories have governed tool access evidence such as an MCP or tool manifest",
-      "maxBandOnFailure": "Managed"
-    },
     {
       "band": "Mature",
       "check": "has_reproducibility_evidence",
@@ -185,6 +180,103 @@
       "severity": "high",
       "requirement": "Mature repositories document ownership or review cadence for agent-context assets",
       "maxBandOnFailure": "Managed"
+    }
+  ],
+  "profiles": [
+    {
+      "key": "cloud",
+      "label": "Cloud",
+      "sizeRange": "Hosted frontier models, or local models larger than ~35B total parameters",
+      "weights": {
+        "persistent_guidance": 12,
+        "scoped_rules": 8,
+        "skills": 10,
+        "specialized_agents": 6,
+        "tool_manifests_mcp": 6,
+        "validation_reproducibility": 15,
+        "ci_pr_automation": 10,
+        "security_sandboxing_hooks": 12,
+        "domain_context": 8,
+        "governance_observability": 7,
+        "versioning_provenance": 3,
+        "onboarding_discoverability": 3
+      },
+      "alwaysOnGuidanceTokenBudget": null,
+      "bandConstraintChecks": [
+        "has_reproducibility_evidence",
+        "has_agent_asset_ci_checks",
+        "has_sandbox_or_deny_controls",
+        "has_agent_context_review_cadence"
+      ]
+    },
+    {
+      "key": "local-medium",
+      "label": "Local - medium",
+      "sizeRange": "~15-35B total parameters, including 30B-A3B/35B-A3B MoE",
+      "weights": {
+        "persistent_guidance": 20,
+        "scoped_rules": 8,
+        "skills": 10,
+        "specialized_agents": 2,
+        "tool_manifests_mcp": 4,
+        "validation_reproducibility": 20,
+        "ci_pr_automation": 8,
+        "security_sandboxing_hooks": 10,
+        "domain_context": 10,
+        "governance_observability": 3,
+        "versioning_provenance": 3,
+        "onboarding_discoverability": 2
+      },
+      "alwaysOnGuidanceTokenBudget": 3000,
+      "bandConstraintChecks": [
+        "has_reproducibility_evidence"
+      ]
+    },
+    {
+      "key": "local-small",
+      "label": "Local - small",
+      "sizeRange": "~5-14B total parameters",
+      "weights": {
+        "persistent_guidance": 21,
+        "scoped_rules": 8,
+        "skills": 8,
+        "specialized_agents": 1,
+        "tool_manifests_mcp": 3,
+        "validation_reproducibility": 22,
+        "ci_pr_automation": 8,
+        "security_sandboxing_hooks": 10,
+        "domain_context": 11,
+        "governance_observability": 3,
+        "versioning_provenance": 3,
+        "onboarding_discoverability": 2
+      },
+      "alwaysOnGuidanceTokenBudget": 1500,
+      "bandConstraintChecks": [
+        "has_reproducibility_evidence"
+      ]
+    },
+    {
+      "key": "local-tiny",
+      "label": "Local - tiny",
+      "sizeRange": "Up to ~4B total parameters",
+      "weights": {
+        "persistent_guidance": 22,
+        "scoped_rules": 8,
+        "skills": 6,
+        "specialized_agents": 0,
+        "tool_manifests_mcp": 2,
+        "validation_reproducibility": 24,
+        "ci_pr_automation": 8,
+        "security_sandboxing_hooks": 10,
+        "domain_context": 12,
+        "governance_observability": 2,
+        "versioning_provenance": 3,
+        "onboarding_discoverability": 3
+      },
+      "alwaysOnGuidanceTokenBudget": 1000,
+      "bandConstraintChecks": [
+        "has_reproducibility_evidence"
+      ]
     }
   ]
 }

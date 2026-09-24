@@ -195,3 +195,23 @@ Required follow-up:
 - Cursor and Windsurf/Devin scanner changes (F19, F20).
 - Phase 6 calibration runs.
 - Maintainability mode.
+
+## 9. Implementation record (2026-09-24)
+
+- **Approval:** the maintainer approved this plan by path in the conversation ("approved").
+- **Implemented as planned**, with one addition: the dashboard category heatmap hides results scored under an older rubric version and says how many are hidden, because v1.0 values against v2.0 maxima displayed misleading percentages.
+
+**Verification:**
+
+- `npm test -- --run`: 173 passed, 2 failed.
+  - The 2 failures predate this change and are date-dependent, not caused by it:
+    - `scanner.test.ts` "treats supported runtime posture as supported…": `src/lib/reference/runtimeSupport.json` `lastUpdated` 2026-06-26 with `expiryDays` 60 has expired.
+    - `scoreHistory.test.ts` "keeps the last five full snapshots": uses dated fixtures.
+  - Both failed identically on the base commit before any edits.
+- `npm run check`: 0 errors, 0 warnings.
+- `npm run build`: succeeded.
+- **Manual end-to-end:**
+  - `npm run dev` ran against a temporary database and `.env`, with a deterministic fake OpenAI-compatible LLM server. No real LLM was available in the environment.
+  - Scoring a demo repo produced rubric 2.0 results: Cloud 80, Local medium 80, Local small 79 (guidance credit ×0.94), Local tiny 73 (×0.67), with ~1,666 always-on tokens.
+  - A seeded v1.0 result showed the stale notice and was excluded from profile and heatmap displays.
+  - Switching the tier in Settings changed the dashboard column without rescoring.
