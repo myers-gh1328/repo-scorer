@@ -9,7 +9,7 @@ Inputs:
 - rubric.schema.json
 - src/lib/scoreCaps.ts, src/lib/promptBuilder.ts, src/lib/scanner.ts
 Required follow-up:
-- Maintainer approved the direction on 2026-09-24: a cloud score plus a user-selected local tier (tiny ≤4B / small 5–14B / medium 15–35B; larger models count as cloud). The maintainer still needs to approve or edit the tier weights and guidance budgets in section 5.3.
+- Maintainer approved the direction on 2026-09-24: a cloud score plus a user-selected local tier (tiny ≤4B / small 5–14B / medium 15–35B; larger models count as cloud). On 2026-09-24 the maintainer approved the tier weights and guidance budgets in section 5.3 as a starting point, subject to Phase 6 calibration (section 5.4).
 - Re-verify the items marked NOT VERIFIED once `arxiv.org`, `cursor.com`, `docs.windsurf.com`, and `developers.openai.com` are reachable (blocked by this environment's network policy on 2026-09-24).
 - Then run `implement-rubric-update` for the confirmed vendor-freshness changes in section 3. Those are low risk and can proceed independently of the dual-score decision.
 
@@ -190,5 +190,5 @@ These weights and budgets are reasoned from the evidence, not measured. Before p
 ## 7. Implementation readiness
 
 - **Can proceed after maintainer sign-off (low risk):** F1–F18 vendor updates and S1 (remove the MCP cap).
-- **Needs human sign-off:** the tier weights and token budgets (section 5.3). The dual-score direction is approved.
+- **Approved as a starting point:** the dual-score direction, tier weights and token budgets (section 5.3). These need calibration before leaving beta.
 - **Needs re-verification when the network allows:** section 6 items and F19–F20.
