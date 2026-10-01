@@ -4,9 +4,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 vi.mock('./llmClient', () => ({ callLLM: vi.fn() }));
+vi.mock('./duplication', () => ({ detectDuplication: vi.fn().mockResolvedValue({ status: 'unavailable' }) }));
 
 import { parseScoreResult, scoreRepo } from './scorer';
 import { callLLM } from './llmClient';
+import { detectDuplication } from './duplication';
 import { bandForScore } from './types';
 import { loadRubricDefinition, type RubricDefinition } from './rubricSchema';
 
@@ -55,6 +57,14 @@ describe('scoreRepo', () => {
     tmpDir = await mkdtemp(join(tmpdir(), 'scorer-out-'));
     scoresPath = join(tmpDir, 'scores.json');
     vi.mocked(callLLM).mockResolvedValue(JSON.stringify(mockResult));
+  });
+
+  it('runs the duplication check only for maintainability scoring', async () => {
+    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
+    expect(vi.mocked(detectDuplication)).not.toHaveBeenCalled();
+
+    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath, undefined, undefined, 'maintainability');
+    expect(vi.mocked(detectDuplication)).toHaveBeenCalledWith(repoDir);
   });
 
   it('returns a ScoreResult with scoredAt populated', async () => {

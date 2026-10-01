@@ -56,7 +56,7 @@ export const POST: RequestHandler = async ({ request }) => {
       maxTokens: 4096,
       responseFormat: useJsonSchema ? scoreResponseFormatForRubric(rubricDefinition) : undefined
     }, undefined, rubricDefinition, undefined, mode, {
-      scannerEvidenceVersion: '2026-09-24.1',
+      scannerEvidenceVersion: '2026-10-01.2',
       guidanceTool: aiTooling,
       ...(runtimeSupport ? {
         referenceDataVersion: runtimeSupport.version,

@@ -1,8 +1,12 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+
+vi.mock('./duplication', () => ({ detectDuplication: vi.fn() }));
+
 import { scanRepo } from './scanner';
+import { detectDuplication } from './duplication';
 import type { RuntimeSupportMatrix } from './reference/runtimeSupport';
 
 describe('scanRepo', () => {
@@ -423,5 +427,51 @@ describe('scanRepo', () => {
     const { evidence } = await scanRepo(repoDir);
 
     expect(evidence.claudeLocalMdNotIgnored).toBe(false);
+  });
+});
+
+describe('scanRepo duplication evidence', () => {
+  let repoDir: string;
+
+  beforeEach(async () => {
+    vi.mocked(detectDuplication).mockReset();
+    repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-dup-'));
+  });
+
+  it('does not run the duplication check unless asked', async () => {
+    const result = await scanRepo(repoDir);
+
+    expect(vi.mocked(detectDuplication)).not.toHaveBeenCalled();
+    expect(result.evidence.duplicationStatus).toBeUndefined();
+  });
+
+  it('adds measured duplication evidence when enabled', async () => {
+    vi.mocked(detectDuplication).mockResolvedValue({
+      status: 'measured',
+      percentage: 5.15,
+      cloneCount: 44,
+      duplicatedLines: 300,
+      topPairs: ['src/a.ts:1-20 <-> src/b.ts:5-24 (20 lines)']
+    });
+
+    const result = await scanRepo(repoDir, undefined, { duplication: true });
+
+    expect(vi.mocked(detectDuplication)).toHaveBeenCalledWith(repoDir);
+    expect(result.evidence).toMatchObject({
+      duplicationStatus: 'measured',
+      duplicationPercentage: 5.15,
+      duplicationCloneCount: 44,
+      duplicationDuplicatedLines: 300,
+      duplicationTopPairs: ['src/a.ts:1-20 <-> src/b.ts:5-24 (20 lines)']
+    });
+  });
+
+  it('records unavailable duplication as neutral evidence', async () => {
+    vi.mocked(detectDuplication).mockResolvedValue({ status: 'unavailable' });
+
+    const result = await scanRepo(repoDir, undefined, { duplication: true });
+
+    expect(result.evidence.duplicationStatus).toBe('unavailable');
+    expect(result.evidence.duplicationPercentage).toBeUndefined();
   });
 });
