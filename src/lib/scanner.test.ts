@@ -301,7 +301,8 @@ describe('scanRepo', () => {
   it('treats supported runtime posture as supported when no risks or unknowns exist', async () => {
     const matrix: RuntimeSupportMatrix = {
       version: 'test',
-      lastUpdated: '2026-06-26',
+      // Relative to today so the reference data never ages past expiryDays.
+      lastUpdated: new Date().toISOString().slice(0, 10),
       expiryDays: 60,
       sources: ['official'],
       entries: [{

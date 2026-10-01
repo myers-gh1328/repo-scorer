@@ -50,8 +50,15 @@ describe('scoreHistory', () => {
 		const dir = await mkdtemp(join(tmpdir(), 'score-history-'));
 		const path = join(dir, 'score-history.json');
 
-		for (let index = 0; index < 7; index += 1) {
-			await appendScoreHistory(path, 'repo-a', score(`2026-06-${String(10 + index).padStart(2, '0')}T12:00:00.000Z`, 70 + index));
+		// Pin the clock so the fixture dates stay inside the "keep all recent" window.
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(new Date('2026-06-25T12:00:00.000Z'));
+		try {
+			for (let index = 0; index < 7; index += 1) {
+				await appendScoreHistory(path, 'repo-a', score(`2026-06-${String(10 + index).padStart(2, '0')}T12:00:00.000Z`, 70 + index));
+			}
+		} finally {
+			vi.useRealTimers();
 		}
 
 		const stored = JSON.parse(await readFile(path, 'utf-8'));
