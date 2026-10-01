@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
+import { detectDuplication } from './duplication';
 import { isRuntimeSupportMatrixStale, runtimeSupportAnalysis, type RuntimeSupportMatrix } from './reference/runtimeSupport';
 
 const MAX_FILE_CHARS = 8000;
@@ -159,6 +160,15 @@ export interface EvidenceInventory {
   unknownRuntimeVersionFiles?: string[];
   runtimeReferenceDataStale?: boolean;
   hasSupportedCoreRuntime?: boolean;
+  duplicationStatus?: 'measured' | 'unavailable';
+  duplicationPercentage?: number;
+  duplicationCloneCount?: number;
+  duplicationDuplicatedLines?: number;
+  duplicationTopPairs?: string[];
+}
+
+export interface ScanOptions {
+  duplication?: boolean;
 }
 
 export interface ScanResult {
@@ -166,7 +176,7 @@ export interface ScanResult {
   evidence: EvidenceInventory;
 }
 
-export async function scanRepo(repoPath: string, runtimeSupport?: RuntimeSupportMatrix): Promise<ScanResult> {
+export async function scanRepo(repoPath: string, runtimeSupport?: RuntimeSupportMatrix, options: ScanOptions = {}): Promise<ScanResult> {
   const files: ScannedFile[] = [];
 
   for (const filePath of EXACT_FILES) {
@@ -189,7 +199,19 @@ export async function scanRepo(repoPath: string, runtimeSupport?: RuntimeSupport
   await collectSkillFiles(repoPath, files);
   await collectMaintainabilityEvidenceFiles(repoPath, files);
 
-  return { files, evidence: buildEvidence(files, runtimeSupport) };
+  const evidence = buildEvidence(files, runtimeSupport);
+  if (options.duplication) {
+    const duplication = await detectDuplication(repoPath);
+    evidence.duplicationStatus = duplication.status;
+    if (duplication.status === 'measured') {
+      evidence.duplicationPercentage = duplication.percentage;
+      evidence.duplicationCloneCount = duplication.cloneCount;
+      evidence.duplicationDuplicatedLines = duplication.duplicatedLines;
+      evidence.duplicationTopPairs = duplication.topPairs;
+    }
+  }
+
+  return { files, evidence };
 }
 
 async function collectNestedAgents(repoRoot: string, files: ScannedFile[]): Promise<void> {

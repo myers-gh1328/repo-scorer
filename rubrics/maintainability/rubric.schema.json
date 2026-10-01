@@ -1,5 +1,5 @@
 {
-  "version": "0.1-draft",
+  "version": "0.2-draft",
   "totalScore": 100,
   "categories": [
     {
@@ -49,7 +49,7 @@
       "label": "Code organization",
       "weight": 10,
       "scannerSection": "Code organization",
-      "evaluate": "Module boundaries are clear; domain logic is separated from framework glue where practical; file layout is predictable; large files and tangled dependencies are limited"
+      "evaluate": "Module boundaries are clear; domain logic is separated from framework glue where practical; file layout is predictable; large files, tangled dependencies, and copy-paste duplication are limited"
     },
     {
       "key": "change_safety",
