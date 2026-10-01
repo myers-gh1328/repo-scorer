@@ -12,9 +12,10 @@ describe('rubricSchema', () => {
 		expect(rubric.categories[0]).toMatchObject({
 			key: 'persistent_guidance',
 			label: 'Persistent guidance',
-			weight: 15
+			weight: 12
 		});
-		expect(rubric.categoryMax.persistent_guidance).toBe(15);
+		expect(rubric.categoryMax.persistent_guidance).toBe(12);
+		expect(rubric.version).toBe('2.0');
 		expect(rubric.categoryLabels.tool_manifests_mcp).toBe('Tool manifests and MCP');
 		expect(rubric.totalWeight).toBe(100);
 	});
@@ -230,6 +231,58 @@ describe('rubricSchema', () => {
 				}
 			]
 		})).toThrow(/unknown evidence field/);
+	});
+});
+
+describe('rubric profiles', () => {
+	const base = {
+		version: 'test',
+		totalScore: 10,
+		categories: [
+			{ key: 'one', label: 'One', weight: 6, evaluate: 'One thing' },
+			{ key: 'two', label: 'Two', weight: 4, evaluate: 'Two things' }
+		],
+		bands: [
+			{ label: 'Low', min: 0, max: 4 },
+			{ label: 'High', min: 5, max: 10 }
+		]
+	};
+	const cloud = { key: 'cloud', label: 'Cloud', weights: { one: 6, two: 4 }, alwaysOnGuidanceTokenBudget: null, bandConstraintChecks: [] };
+	const local = { key: 'local-small', label: 'Local', weights: { one: 10, two: 0 }, alwaysOnGuidanceTokenBudget: 1500, bandConstraintChecks: ['has_reproducibility_evidence'] };
+
+	it('loads the v2.0 profiles from rubric.schema.json', async () => {
+		const rubric = loadRubricDefinition(await readFile('rubric.schema.json', 'utf-8'));
+
+		expect(rubric.profiles?.map(profile => [profile.key, profile.alwaysOnGuidanceTokenBudget])).toEqual([
+			['cloud', null],
+			['local-medium', 3000],
+			['local-small', 1500],
+			['local-tiny', 1000]
+		]);
+		expect(rubric.profiles?.find(profile => profile.key === 'local-tiny')?.weights.specialized_agents).toBe(0);
+	});
+
+	it('accepts valid profiles and allows zero weights', () => {
+		const rubric = normalizeRubricDefinition({ ...base, profiles: [cloud, local] });
+		expect(rubric.profiles?.[1].weights).toEqual({ one: 10, two: 0 });
+	});
+
+	it('keeps profiles optional', () => {
+		expect(normalizeRubricDefinition(base).profiles).toBeUndefined();
+	});
+
+	it.each([
+		[[{ ...local, weights: { one: 9, two: 0 } }, cloud], 'weights sum to 9'],
+		[[{ ...local, weights: { one: 10 } }, cloud], 'weight for "two"'],
+		[[{ ...local, weights: { one: 11, two: -1 } }, cloud], 'non-negative integer'],
+		[[{ ...local, weights: { one: 6, two: 4, three: 0 } }, cloud], 'unknown category "three"'],
+		[[{ ...local, bandConstraintChecks: ['nope'] }, cloud], 'known consistency checks'],
+		[[{ ...local, alwaysOnGuidanceTokenBudget: 0 }, cloud], 'positive integer or null'],
+		[[local], 'must include a "cloud" profile'],
+		[[{ ...cloud, weights: { one: 5, two: 5 } }], 'must equal the base category weight'],
+		[[cloud, cloud], 'Duplicate rubric profile key']
+	])('rejects invalid profiles (%#)', (profiles, message) => {
+		expect(() => normalizeRubricDefinition({ ...base, profiles })).toThrow(message);
 	});
 });
 

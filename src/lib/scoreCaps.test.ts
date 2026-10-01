@@ -110,10 +110,11 @@ describe('applyEvidenceCaps', () => {
     expect(adjusted.categories.ci_pr_automation).toBe(10);
   });
 
-  it('caps tool_manifests_mcp at 5 when no MCP manifest exists', () => {
+  it('does not cap tool_manifests_mcp when no MCP manifest exists', () => {
     const adjusted = applyEvidenceCaps(result(), evidence);
 
-    expect(adjusted.categories.tool_manifests_mcp).toBe(5);
+    expect(adjusted.categories.tool_manifests_mcp).toBe(result().categories.tool_manifests_mcp);
+    expect(adjusted.appliedCaps?.some(cap => cap.category === 'tool_manifests_mcp')).toBe(false);
   });
 
   it('recomputes score and band from adjusted categories', () => {

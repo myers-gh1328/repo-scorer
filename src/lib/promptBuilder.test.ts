@@ -90,7 +90,9 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('"skills" cannot exceed 4');
     expect(prompt).toContain('"ci_pr_automation" cannot exceed 3');
     expect(prompt).toContain('"ci_pr_automation" cannot exceed 6');
-    expect(prompt).toContain('"tool_manifests_mcp" cannot exceed 5');
+    expect(prompt).not.toContain('"tool_manifests_mcp" cannot exceed 5');
+    expect(prompt).toContain('score "tool_manifests_mcp" as neutral');
+    expect(prompt).toContain('"persistent_guidance": <integer 0-12>');
   });
 
   it('builds bounded category prompts with included and omitted evidence', () => {

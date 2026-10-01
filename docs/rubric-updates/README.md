@@ -1,16 +1,20 @@
 # Rubric Updates
 
-Durable reports for changing repo-scorer rubrics. Every report starts with a
-decision block (see `.agent/skills/*/references/report-contract.md`).
+Reports that gate changes to repo-scorer rubrics (`rubric.md`, `rubric.schema.json`, and `rubrics/*/`). Every report starts with a decision block (see `.agent/skills/*/references/report-contract.md`).
 
-- `candidate-evaluations/` — output of `evaluate-candidate-rubric`. Never sufficient on its own.
-- `freshness-research/` — output of `research-rubric-freshness`. Required before any rubric change.
-- `implementation-plans/` — output of `implement-rubric-update`.
+| Folder | Produced by | Purpose |
+|---|---|---|
+| `candidate-evaluations/` | `evaluate-candidate-rubric` | Assess a proposed rubric artifact before research |
+| `freshness-research/` | `research-rubric-freshness` | Check rubric claims against current primary sources |
+| `implementation-plans/` | `implement-rubric-update` | Plan the concrete rubric/schema/scorer edits |
 
 Approval gates:
 
-1. A freshness report must exist with `Status: implementation-eligible`, or the
-   owner must explicitly approve its named open findings.
-2. The owner approves the report path(s) in conversation before planning.
-3. The owner approves the implementation plan path before any active rubric,
-   schema, or code file is edited.
+- Implementation requires at least one freshness research report.
+- A candidate evaluation may inform implementation but is never the only basis.
+- Only freshness research reports may carry `implementation-eligible` status.
+- Reports marked `needs-human-decision` require a maintainer decision before implementation.
+- The owner approves the report path(s) in conversation before planning.
+- The owner approves the implementation plan path before any active rubric, schema, or code file is edited.
+
+Report names follow `YYYY-MM-DD-HHMM-<type>-<slug>.md`.
