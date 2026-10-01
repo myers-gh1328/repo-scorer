@@ -1,6 +1,6 @@
 # Maintainability Rubric - Draft
 
-**Version:** 0.1-draft
+**Version:** 0.2-draft
 
 This draft rubric evaluates whether a competent team can keep changing a repository safely, affordably, and with confidence. It is intentionally separate from the AI-readiness rubric.
 
@@ -25,7 +25,7 @@ The score should reflect maintainability evidence in the repository, not whether
 | Repository hygiene | 10 | The repo has expected stack files, lockfiles where appropriate, useful gitignore coverage, generated/cache/build outputs excluded, and safe example config without real secrets |
 | Credential and identity hygiene | 10 | Secrets are not committed; password, API-key, token, and client-secret use is isolated and documented; cloud or CI/CD integrations prefer managed identity, workload identity, OIDC, IAM roles, or secret-store references where supported |
 | Infrastructure as Code hygiene | 10 | When IaC or deployment configuration is present, infrastructure changes are repeatable, reviewable, validated, version-aware, and safely separated across environments |
-| Code organization | 10 | Module boundaries are clear; domain logic is separated from framework glue where practical; file layout is predictable; large files and tangled dependencies are limited |
+| Code organization | 10 | Module boundaries are clear; domain logic is separated from framework glue where practical; file layout is predictable; large files, tangled dependencies, and copy-paste duplication are limited |
 | Change safety | 8 | Common changes are localized; APIs, storage, migrations, config, and compatibility risks are handled deliberately; rollback or recovery paths exist for risky changes |
 | Operational support | 7 | Logs, errors, health checks, configuration, observability, and debugging instructions are useful enough to operate and troubleshoot the software |
 | Documentation and onboarding | 6 | README, setup, architecture, contribution, testing, deployment, and troubleshooting docs exist where useful and match actual files, scripts, and workflows |
@@ -129,6 +129,7 @@ Use LLM judgment against repo-local evidence:
 - File and folder structure is predictable.
 - Shared behavior is centralized without excessive abstraction.
 - Large files, circular dependencies, and scattered cross-cutting concerns are limited.
+- Copy-paste duplication is limited. When the scanner reports `duplicationStatus: measured`, use `duplicationPercentage` (share of duplicated code lines found by jscpd, code files only) and `duplicationTopPairs` (largest clone pairs with file and line ranges) as evidence. Cite specific pairs instead of the percentage alone, and weigh whether the clones are deliberate (tests, fixtures, generated code) or shared behavior that should be centralized. `duplicationStatus: unavailable` means the check could not run and is neutral, not a penalty.
 
 ### Change Safety
 
