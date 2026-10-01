@@ -199,7 +199,7 @@ export async function scoreRepo(
     currentStep: 0,
     totalSteps: rubricDefinition ? rubricDefinition.categories.length + 4 : 4
   });
-  const scan = await scanRepo(repoPath, runtimeSupport);
+  const scan = await scanRepo(repoPath, runtimeSupport, { duplication: evaluationMode === 'maintainability' });
   if (rubricDefinition) {
     let result = await scoreRepoByCategory(rubricDefinition, rubric, scan, llmConfig, name, evaluationMode);
     updateScoringProgress(name, {
