@@ -1,3 +1,4 @@
+import { CATEGORY_MAX } from './types';
 import type { ScanResult } from './scanner';
 import type { RubricCategoryDefinition, RubricDefinition } from './rubricSchema';
 import type { EvaluationMode } from './types';
@@ -42,7 +43,7 @@ Evidence-bound scoring constraints:
 - If "hasFormalSkills" is false, "skills" cannot exceed 4 even when recipe-like docs exist.
 - If "hasCiWorkflow" is false, "ci_pr_automation" cannot exceed 3.
 - If "hasManualOnlyCi" is true, "ci_pr_automation" cannot exceed 6.
-- If "hasMcpManifest" is false, "tool_manifests_mcp" cannot exceed 5.
+- If the repository shows no external-system need, score "tool_manifests_mcp" as neutral rather than penalizing a missing MCP manifest.
 - Adjacent workflow docs may earn partial credit, but cannot satisfy artifact-specific criteria unless they match the expected file/package format.
 
 ## TASK
@@ -54,18 +55,7 @@ Evaluate the repository based only on the files shown above. return ONLY a JSON 
   "band": <"Fragile" | "Emerging" | "Operational" | "Managed" | "Mature">,
   "primaryLanguage": <primary programming language as a string>,
   "categories": {
-    "persistent_guidance": <integer 0-15>,
-    "scoped_rules": <integer 0-10>,
-    "skills": <integer 0-10>,
-    "specialized_agents": <integer 0-10>,
-    "tool_manifests_mcp": <integer 0-10>,
-    "validation_reproducibility": <integer 0-10>,
-    "ci_pr_automation": <integer 0-10>,
-    "security_sandboxing_hooks": <integer 0-10>,
-    "domain_context": <integer 0-5>,
-    "governance_observability": <integer 0-5>,
-    "versioning_provenance": <integer 0-3>,
-    "onboarding_discoverability": <integer 0-2>
+${Object.entries(CATEGORY_MAX).map(([key, max]) => `    "${key}": <integer 0-${max}>`).join(',\n')}
   },
   "categoryRationales": {
     "<category_key>": {

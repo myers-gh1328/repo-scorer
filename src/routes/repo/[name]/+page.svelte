@@ -103,6 +103,12 @@
   }
 
   const categoryEntries = $derived(data.rubric.categories);
+  const profileScores = $derived(data.isStaleRubric ? undefined : data.result?.profileScores);
+  const cloudProfile = $derived(profileScores?.cloud);
+  const localProfile = $derived(profileScores?.[data.localProfileKey]);
+  const otherLocalProfiles = $derived(
+    Object.values(profileScores ?? {}).filter(profile => profile.key.startsWith('local-') && profile.key !== data.localProfileKey)
+  );
   const categoryLabels = $derived(data.rubric.categoryLabels);
 
   function scoreDrop(from: number, to: number): string {
@@ -177,6 +183,14 @@
     {@const appliedCaps = r.appliedCaps ?? []}
     {@const delta = trendDelta(finalScore)}
 
+    {#if data.isStaleRubric}
+      <div class="notice stale-notice">
+        Scored with rubric v{r.rubricVersion ?? '1.0'}; the current rubric is v{data.rubric.version}.
+        Category weights changed, so the breakdown below uses the old scale.
+        {#if data.hasProfiles}Re-score to see Cloud and Local scores.{:else}Re-score to update.{/if}
+      </div>
+    {/if}
+
     <div class="score-hero">
       <span class="score-number" style="color:{bandColor(finalBand)}">{finalScore}</span>
       <span class="band-label" style="color:{bandColor(finalBand)}">{finalBand}</span>
@@ -191,6 +205,70 @@
         </div>
       {/if}
     </div>
+
+    {#if cloudProfile || localProfile}
+      <div class="section">
+        <h2>Cloud vs Local</h2>
+        <div class="profile-grid">
+          {#each [cloudProfile, localProfile].filter(Boolean) as profile}
+            {@const p = profile!}
+            <div class="profile-card">
+              <div class="profile-head">
+                <span class="profile-label">{p.label}</span>
+                <span class="profile-score" style="color:{bandColor(p.band)}">{p.score}</span>
+                <span style="color:{bandColor(p.band)}">{p.band}</span>
+              </div>
+              {#if p.sizeRange}
+                <small class="muted">{p.sizeRange}</small>
+              {/if}
+              {#if p.guidanceBudget}
+                {@const b = p.guidanceBudget}
+                {@const pct = Math.min((b.estimatedTokens / (b.budget * 2)) * 100, 100)}
+                <div class="budget">
+                  <div class="category-label">
+                    <span>Always-on guidance (approx.)</span>
+                    <span>~{b.estimatedTokens} / {b.budget} tokens</span>
+                  </div>
+                  <div class="bar-track">
+                    <div class="bar-fill" style="width:{pct}%; background:{b.withinBudget ? bandColor('Managed') : b.factor > 0.5 ? bandColor('Emerging') : bandColor('Fragile')}"></div>
+                  </div>
+                  <small class="muted">
+                    {b.files.length > 0 ? b.files.join(', ') : 'No always-on guidance files'} · measured for {b.tool} tooling
+                    {#if !b.withinBudget} · guidance credit ×{b.factor.toFixed(2)}{/if}
+                  </small>
+                </div>
+              {/if}
+              <table class="profile-table">
+                <tbody>
+                  {#each categoryEntries as category}
+                    {@const weight = p.weights[category.key] ?? 0}
+                    <tr>
+                      <td>{category.label}</td>
+                      <td class="num">{weight === 0 ? 'N/A for this tier' : `${p.categories[category.key] ?? 0} / ${weight}`}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+              {#each p.riskFlags as flag}
+                <p class="profile-risk">{flag}</p>
+              {/each}
+              {#each p.consistencyChecks.filter(check => !check.passed) as check}
+                <p class="profile-risk">{check.requirement}: {check.reason}</p>
+              {/each}
+            </div>
+          {/each}
+        </div>
+        {#if otherLocalProfiles.length > 0}
+          <p class="muted other-tiers">
+            Other local tiers:
+            {#each otherLocalProfiles as other, index}
+              {index > 0 ? ' · ' : ''}{other.label} {other.score} ({other.band})
+            {/each}
+            · change your tier in <a href="/settings">Settings</a>
+          </p>
+        {/if}
+      </div>
+    {/if}
 
     {#if hasScoreStages}
       <div class="score-waterfall section">
@@ -255,13 +333,13 @@
         {@const key = category.key}
         {@const val = r.categories[key] ?? 0}
         {@const rawVal = r.rawCategories?.[key]}
-        {@const max = category.weight}
+        {@const max = data.isStaleRubric ? 0 : category.weight}
         {@const pct = max > 0 ? (val / max) * 100 : 0}
         <div class="category-row">
           <div class="category-label">
             <span>{category.label}</span>
             <span>
-              {val} / {max}
+              {max > 0 ? `${val} / ${max}` : val}
               {#if rawVal !== undefined && rawVal !== val}
                 <small class="score-delta">model {rawVal}</small>
               {/if}

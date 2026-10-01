@@ -2,7 +2,8 @@ import type { PageServerLoad } from './$types';
 import { readRepoConfig } from '$lib/server/repoConfig';
 import { storage } from '$lib/server/storage';
 import { evaluationModeDefinition, listEvaluationModes, parseEvaluationMode, readEvaluationRubric } from '$lib/evaluationModes';
-import type { RepoConfig } from '$lib/types';
+import { readAppSettings } from '$lib/server/appSettings';
+import { localProfileKey, type RepoConfig } from '$lib/types';
 
 export const load: PageServerLoad = async ({ url }) => {
   const mode = parseEvaluationMode(url.searchParams.get('mode'));
@@ -19,5 +20,17 @@ export const load: PageServerLoad = async ({ url }) => {
     categoryLabels: rubricDefinition.categoryLabels
   };
 
-  return { repos, scores, scoreHistory, rubric, mode, modeDefinition: evaluationModeDefinition(mode), modes: listEvaluationModes() };
+  const { localModelTier } = await readAppSettings();
+  const localProfile = rubricDefinition.profiles?.find(profile => profile.key === localProfileKey(localModelTier));
+
+  return {
+    repos,
+    scores,
+    scoreHistory,
+    rubric,
+    mode,
+    modeDefinition: evaluationModeDefinition(mode),
+    modes: listEvaluationModes(),
+    localProfile: localProfile ? { key: localProfile.key, label: localProfile.label } : null
+  };
 };

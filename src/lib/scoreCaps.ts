@@ -28,12 +28,6 @@ export const SCORE_CAP_RULES: ScoreCapRule[] = [
     maxScore: 6,
     reason: 'CI workflows exist but are not triggered by push or pull_request',
     applies: evidence => evidence.hasManualOnlyCi
-  },
-  {
-    category: 'tool_manifests_mcp',
-    maxScore: 5,
-    reason: 'No MCP or explicit tool manifest files found',
-    applies: evidence => !evidence.hasMcpManifest
   }
 ];
 

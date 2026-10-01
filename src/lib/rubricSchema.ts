@@ -38,7 +38,14 @@ const EVIDENCE_FIELDS = new Set([
 	'runtimeFiles',
 	'runtimeVersionFiles',
 	'eolRuntimeRisks',
-	'hasSupportedCoreRuntime'
+	'hasSupportedCoreRuntime',
+	'hasVolatileGuidancePrefix',
+	'claudeMdShadowsAgentsMd',
+	'claudeLocalMdNotIgnored',
+	'legacyPromptFiles',
+	'pluginManifestFiles',
+	'cloudAgentSetupFiles',
+	'portableSkillFiles'
 ]);
 
 const CONSISTENCY_CHECKS = new Set<string>(CONSISTENCY_CHECK_IDS);
@@ -79,6 +86,15 @@ export interface RubricBandConstraintDefinition {
 	maxBandOnFailure: string;
 }
 
+export interface RubricProfileDefinition {
+	key: string;
+	label: string;
+	sizeRange?: string;
+	weights: Record<string, number>;
+	alwaysOnGuidanceTokenBudget: number | null;
+	bandConstraintChecks: string[];
+}
+
 export interface RubricDefinitionInput {
 	version: string;
 	totalScore: number;
@@ -86,6 +102,7 @@ export interface RubricDefinitionInput {
 	bands: RubricBandDefinition[];
 	caps?: RubricCapRuleDefinition[];
 	bandConstraints?: RubricBandConstraintDefinition[];
+	profiles?: RubricProfileDefinition[];
 }
 
 export interface RubricDefinition extends RubricDefinitionInput {
@@ -120,6 +137,8 @@ export function normalizeRubricDefinition(value: unknown): RubricDefinition {
 		throw new Error(`Rubric category weights sum to ${totalWeight}, expected ${totalScore}`);
 	}
 
+	const profiles = normalizeProfiles(value.profiles, categories, totalScore);
+
 	return {
 		version,
 		totalScore,
@@ -127,6 +146,7 @@ export function normalizeRubricDefinition(value: unknown): RubricDefinition {
 		bands,
 		caps,
 		bandConstraints,
+		...(profiles ? { profiles } : {}),
 		totalWeight,
 		categoryMax: Object.fromEntries(categories.map(category => [category.key, category.weight])),
 		categoryLabels: Object.fromEntries(categories.map(category => [category.key, category.label])),
@@ -138,6 +158,81 @@ export function normalizeRubricDefinition(value: unknown): RubricDefinition {
 			return band.label;
 		}
 	};
+}
+
+function normalizeProfiles(
+	value: unknown,
+	categories: RubricCategoryDefinition[],
+	totalScore: number
+): RubricProfileDefinition[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value) || value.length === 0) {
+		throw new Error('Rubric schema profiles must be a non-empty array when present');
+	}
+	const categoryKeys = categories.map(category => category.key);
+	const seen = new Set<string>();
+
+	const profiles = value.map((item, index) => {
+		if (!isRecord(item)) {
+			throw new Error(`Rubric profile ${index + 1} must be an object`);
+		}
+		const key = stringField(item, 'key');
+		if (seen.has(key)) {
+			throw new Error(`Duplicate rubric profile key "${key}"`);
+		}
+		seen.add(key);
+
+		const rawWeights = item.weights;
+		if (!isRecord(rawWeights)) {
+			throw new Error(`Rubric profile "${key}" must include a weights object`);
+		}
+		const extra = Object.keys(rawWeights).filter(weightKey => !categoryKeys.includes(weightKey));
+		if (extra.length > 0) {
+			throw new Error(`Rubric profile "${key}" references unknown category "${extra[0]}"`);
+		}
+		const weights: Record<string, number> = {};
+		for (const categoryKey of categoryKeys) {
+			const weight = rawWeights[categoryKey];
+			if (typeof weight !== 'number' || !Number.isInteger(weight) || weight < 0) {
+				throw new Error(`Rubric profile "${key}" weight for "${categoryKey}" must be a non-negative integer`);
+			}
+			weights[categoryKey] = weight;
+		}
+		const sum = Object.values(weights).reduce((total, weight) => total + weight, 0);
+		if (sum !== totalScore) {
+			throw new Error(`Rubric profile "${key}" weights sum to ${sum}, expected ${totalScore}`);
+		}
+
+		const budget = item.alwaysOnGuidanceTokenBudget;
+		if (budget !== null && (typeof budget !== 'number' || !Number.isInteger(budget) || budget <= 0)) {
+			throw new Error(`Rubric profile "${key}" alwaysOnGuidanceTokenBudget must be a positive integer or null`);
+		}
+
+		const checks = item.bandConstraintChecks ?? [];
+		if (!Array.isArray(checks) || checks.some(check => typeof check !== 'string' || !CONSISTENCY_CHECKS.has(check))) {
+			throw new Error(`Rubric profile "${key}" bandConstraintChecks must list known consistency checks`);
+		}
+
+		return {
+			key,
+			label: stringField(item, 'label'),
+			sizeRange: optionalStringField(item, 'sizeRange'),
+			weights,
+			alwaysOnGuidanceTokenBudget: budget as number | null,
+			bandConstraintChecks: checks as string[]
+		};
+	});
+
+	const cloud = profiles.find(profile => profile.key === 'cloud');
+	if (!cloud) {
+		throw new Error('Rubric profiles must include a "cloud" profile');
+	}
+	const mismatch = categories.find(category => cloud.weights[category.key] !== category.weight);
+	if (mismatch) {
+		throw new Error(`Rubric "cloud" profile weight for "${mismatch.key}" must equal the base category weight`);
+	}
+
+	return profiles;
 }
 
 function normalizeBandConstraints(

@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { DEFAULT_OPENAI_MODEL_ID, normalizeModelId } from '$lib/modelCatalog';
+import { DEFAULT_LOCAL_MODEL_TIER, LOCAL_MODEL_TIERS, type LocalModelTier } from '$lib/types';
 
 const DEFAULT_ENV_PATH = '.env';
 const DEFAULT_LLM_BASE_URL = 'http://localhost:8080';
@@ -11,7 +12,10 @@ export interface AppSettings {
 	llmModel: string;
 	aiTooling: AiTooling;
 	useJsonSchema: boolean;
+	localModelTier: LocalModelTier;
 }
+
+export type AppSettingsInput = Omit<AppSettings, 'localModelTier'> & { localModelTier?: string };
 
 export async function readAppSettings(): Promise<AppSettings> {
 	const explicitBaseUrl = await readEnvValue('LLM_BASE_URL');
@@ -34,24 +38,28 @@ export async function readAppSettings(): Promise<AppSettings> {
 		llmBaseUrl,
 		llmModel,
 		aiTooling: normalizeAiTooling(await readEnvValue('AI_TOOLING') ?? 'generic'),
-		useJsonSchema: normalizeBoolean(await readEnvValue('USE_JSON_SCHEMA') ?? 'false')
+		useJsonSchema: normalizeBoolean(await readEnvValue('USE_JSON_SCHEMA') ?? 'false'),
+		localModelTier: normalizeLocalModelTier(await readEnvValue('LOCAL_MODEL_TIER') ?? DEFAULT_LOCAL_MODEL_TIER)
 	};
 }
 
-export async function writeAppSettings(settings: AppSettings): Promise<AppSettings> {
+export async function writeAppSettings(settings: AppSettingsInput): Promise<AppSettings> {
 	const llmBaseUrl = normalizeBaseUrl(settings.llmBaseUrl);
 	const llmModel = normalizeModel(settings.llmModel);
 	const aiTooling = normalizeAiTooling(settings.aiTooling);
 	const useJsonSchema = Boolean(settings.useJsonSchema);
+	const localModelTier = normalizeLocalModelTier(settings.localModelTier ?? DEFAULT_LOCAL_MODEL_TIER);
 	await writeEnvValue('LLM_BASE_URL', llmBaseUrl);
 	await writeEnvValue('LLM_MODEL', llmModel);
 	await writeEnvValue('AI_TOOLING', aiTooling);
 	await writeEnvValue('USE_JSON_SCHEMA', String(useJsonSchema));
+	await writeEnvValue('LOCAL_MODEL_TIER', localModelTier);
 	process.env.LLM_BASE_URL = llmBaseUrl;
 	process.env.LLM_MODEL = llmModel;
 	process.env.AI_TOOLING = aiTooling;
 	process.env.USE_JSON_SCHEMA = String(useJsonSchema);
-	return { llmBaseUrl, llmModel, aiTooling, useJsonSchema };
+	process.env.LOCAL_MODEL_TIER = localModelTier;
+	return { llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier };
 }
 
 export function normalizeBaseUrl(value: string): string {
@@ -73,6 +81,10 @@ export function normalizeBaseUrl(value: string): string {
 
 export function normalizeAiTooling(value: string): AiTooling {
 	return AI_TOOLING_VALUES.includes(value as AiTooling) ? value as AiTooling : 'generic';
+}
+
+export function normalizeLocalModelTier(value: string): LocalModelTier {
+	return LOCAL_MODEL_TIERS.includes(value as LocalModelTier) ? value as LocalModelTier : DEFAULT_LOCAL_MODEL_TIER;
 }
 
 export function normalizeModel(value: string): string {

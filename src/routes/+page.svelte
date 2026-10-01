@@ -24,6 +24,7 @@
   let clearingStale = $state(false);
   const isScoring = $derived(scoring !== null);
   const allScores = $derived(data.repos.map(repo => data.scores[repo.name]).filter(Boolean));
+  const staleScoreCount = $derived(allScores.filter(score => score.rubricVersion !== data.rubric.version).length);
   const bandCounts = $derived(['Mature', 'Managed', 'Operational', 'Emerging', 'Fragile']
     .map(band => ({ band, count: allScores.filter(score => (score.finalBand ?? score.band) === band).length }))
     .filter(item => item.count > 0));
@@ -106,7 +107,7 @@
 
   function categoryPercent(score: NonNullable<PageData['scores'][string]>, category: PageData['rubric']['categories'][number]): number {
     const value = score.categories?.[category.key] ?? 0;
-    return category.weight > 0 ? Math.round((value / category.weight) * 100) : 0;
+    return category.weight > 0 ? Math.min(100, Math.round((value / category.weight) * 100)) : 0;
   }
 
   function formatElapsed(ms: number): string {
@@ -210,6 +211,9 @@
         <th>Repository</th>
         <th>Score</th>
         <th>Band</th>
+        {#if data.localProfile}
+          <th title="Change the local model size in Settings">{data.localProfile.label}</th>
+        {/if}
         <th>Last Scored</th>
         <th></th>
       </tr>
@@ -255,6 +259,18 @@
               <span class="unscored">Not yet scored</span>
             {/if}
           </td>
+          {#if data.localProfile}
+            {@const local = score?.rubricVersion === data.rubric.version ? score?.profileScores?.[data.localProfile.key] : undefined}
+            <td class="score-cell">
+              {#if local}
+                {local.score} <span class="band" style="color: {bandColor(local.band)}">{local.band}</span>
+              {:else if score}
+                <span class="unscored" title="Re-score with the current rubric to see the local score">Re-score</span>
+              {:else}
+                —
+              {/if}
+            </td>
+          {/if}
           <td class="date-cell">
             {score ? new Date(score.scoredAt).toLocaleString() : '—'}
             {#if score && historyEntries(repo.name).length > 1}
@@ -280,7 +296,9 @@
     <section class="dashboard-panel">
       <div class="section-header">
         <h2>Category Heatmap</h2>
-        <span class="muted">Percent of each category max</span>
+        <span class="muted">
+          Percent of each category max{#if staleScoreCount > 0}{' · '}{staleScoreCount} repo{staleScoreCount === 1 ? '' : 's'} scored with an older rubric hidden until re-scored{/if}
+        </span>
       </div>
       <div class="heatmap-table">
         <div class="heatmap-row heatmap-header">
@@ -291,7 +309,7 @@
         </div>
         {#each data.repos as repo}
           {@const score = data.scores[repo.name]}
-          {#if score}
+          {#if score && score.rubricVersion === data.rubric.version}
             <div class="heatmap-row">
               <span>{repo.name}</span>
               {#each categoryEntries as category}

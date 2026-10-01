@@ -21,10 +21,11 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 			: DEFAULT_OPENAI_MODEL_ID;
 	const aiTooling = typeof body?.aiTooling === 'string' ? body.aiTooling : 'generic';
 	const useJsonSchema = Boolean(body?.useJsonSchema);
+	const localModelTier = typeof body?.localModelTier === 'string' ? body.localModelTier : undefined;
 
 	try {
 		await assertModelAllowedByServer(llmBaseUrl, llmModel, fetch);
-		return json(await writeAppSettings({ llmBaseUrl, llmModel, aiTooling, useJsonSchema }));
+		return json(await writeAppSettings({ llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier }));
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		throw error(400, msg);

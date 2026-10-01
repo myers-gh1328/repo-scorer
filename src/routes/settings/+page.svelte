@@ -14,6 +14,7 @@
 	let loadingModels = $state(false);
 	let aiTooling = $state('generic');
 	let useJsonSchema = $state(false);
+	let localModelTier = $state('medium');
 	let saving = $state('');
 	let message = $state('');
 	let formError = $state('');
@@ -26,6 +27,7 @@
 			availableModels = [...data.models];
 			aiTooling = data.settings.aiTooling;
 			useJsonSchema = data.settings.useJsonSchema;
+			localModelTier = data.settings.localModelTier;
 			initialized = true;
 		}
 	});
@@ -80,7 +82,7 @@
 			const res = await fetch('/api/settings', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ llmBaseUrl, llmModel, aiTooling, useJsonSchema })
+				body: JSON.stringify({ llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier })
 			});
 			const body = await res.json().catch(() => null);
 			if (!res.ok) {
@@ -91,6 +93,7 @@
 			llmModel = body.llmModel;
 			aiTooling = body.aiTooling;
 			useJsonSchema = body.useJsonSchema;
+			localModelTier = body.localModelTier;
 			message = 'Saved LLM settings';
 		} catch {
 			formError = 'Network error while saving LLM settings';
@@ -165,6 +168,14 @@
 					<option value="claude">Claude</option>
 					<option value="copilot">GitHub Copilot</option>
 					<option value="windsurf">Windsurf</option>
+				</select>
+			</label>
+			<label>
+				<span>Local model size</span>
+				<select bind:value={localModelTier} title="Used for the Local score. Models larger than ~35B total parameters should use the Cloud score.">
+					<option value="tiny">Tiny (up to ~4B)</option>
+					<option value="small">Small (~5-14B)</option>
+					<option value="medium">Medium (~15-35B)</option>
 				</select>
 			</label>
 			<label class="checkbox-label">
