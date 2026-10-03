@@ -30,7 +30,7 @@ export const POST: RequestHandler = async ({ request }) => {
   // Validate path is in the configured repo list to prevent arbitrary filesystem access
   const configs: RepoConfig[] = await readRepoConfig();
   if (!configs.some(r => r.name === name && r.path === path)) {
-    throw error(400, `Repo "${name}" not found in repos.config.json`);
+    throw error(400, `Repo "${name}" is not a configured repo`);
   }
 
   if (!existsSync(path)) {

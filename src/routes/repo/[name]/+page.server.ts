@@ -14,7 +14,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
   const repo = repos.find(r => r.name === name);
 
   if (!repo) {
-    throw error(404, `Repo "${name}" not found in repos.config.json`);
+    throw error(404, `Repo "${name}" is not a configured repo`);
   }
 
   const result = storage().getScore(name, mode);

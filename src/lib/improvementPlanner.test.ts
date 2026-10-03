@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtemp } from 'node:fs/promises';
@@ -7,10 +7,10 @@ import {
 	assertImprovementPlanExportAllowed,
 	exportImprovementPlanToRepo,
 	generateImprovementPlan,
-	markImprovementPlanExported,
 	parseImprovementPlan
 } from './improvementPlanner';
 import { callLLM } from './llmClient';
+import { resetStorageForTests, storage } from './server/storage';
 import type { ScoreResult } from './types';
 
 vi.mock('./llmClient', () => ({ callLLM: vi.fn() }));
@@ -194,22 +194,6 @@ describe('parseImprovementPlan', () => {
 		expect(result.prioritizedTasks[0].category).toBe('verification_coverage');
 		expect(result.markdown).toContain('Category: verification_coverage');
 	});
-
-	it('marks a stored plan as exported', async () => {
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
-		const plansPath = join(outDir, 'improvement-plans.json');
-		const parsed = parseImprovementPlan(JSON.stringify(plan), 'repo-scorer', score);
-		await writeFile(plansPath, JSON.stringify({ 'repo-scorer': parsed }));
-
-		const updated = await markImprovementPlanExported(plansPath, 'repo-scorer', {
-			planPath: '.agent/improvement-plan.md',
-			agentsPath: 'AGENTS.md'
-		});
-
-		expect(updated.exportedAt).toBeTruthy();
-		expect(updated.exportedPlanPath).toBe('.agent/improvement-plan.md');
-		expect(updated.exportedAgentsPath).toBe('AGENTS.md');
-	});
 });
 
 describe('exportImprovementPlanToRepo', () => {
@@ -256,9 +240,38 @@ describe('exportImprovementPlanToRepo', () => {
 });
 
 describe('generateImprovementPlan', () => {
+	let dataDir: string;
+
+	beforeEach(async () => {
+		dataDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
+		process.env.REPO_SCORER_DATA_DIR = dataDir;
+		process.env.REPO_SCORER_DB_PATH = join(dataDir, 'repo-scorer.sqlite');
+		resetStorageForTests();
+		storage().addRepo({ name: 'repo-scorer', path: '/repos/repo-scorer' });
+	});
+
+	afterEach(async () => {
+		resetStorageForTests();
+		delete process.env.REPO_SCORER_DATA_DIR;
+		delete process.env.REPO_SCORER_DB_PATH;
+		await rm(dataDir, { recursive: true, force: true });
+	});
+
+	it('saves the generated plan to storage for the evaluation mode', async () => {
+		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
+		vi.mocked(callLLM).mockResolvedValue(JSON.stringify(validPlan));
+
+		const result = await generateImprovementPlan('repo-scorer', repoDir, 'rubric', score, { baseUrl: 'http://localhost:8080' });
+
+		expect(storage().getImprovementPlan('repo-scorer')).toMatchObject({
+			generatedAt: result.generatedAt,
+			sourceRepoPath: repoDir,
+			evaluationMode: 'ai-readiness'
+		});
+	});
+
 	it('rewrites vendor-specific recommendations to generic files by default', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		vi.mocked(callLLM).mockResolvedValue(JSON.stringify(validPlan));
 
 		const result = await generateImprovementPlan(
@@ -267,7 +280,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(result.prioritizedTasks[0].title).not.toContain('Cursor');
@@ -276,7 +288,6 @@ describe('generateImprovementPlan', () => {
 
 	it('fails when the model cannot repair invalid output', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		vi.mocked(callLLM).mockResolvedValue('not valid json');
 
 		await expect(generateImprovementPlan(
@@ -288,13 +299,11 @@ describe('generateImprovementPlan', () => {
 				recommendations: ['Add portable scoped guidance for this repository']
 			},
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		)).rejects.toThrow('PLAN_VALIDATION_FAILED');
 	});
 
 	it('keeps Cursor recommendations when Cursor is selected', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		vi.mocked(callLLM).mockResolvedValue(JSON.stringify({
 			...validPlan,
 			prioritizedTasks: [{
@@ -309,7 +318,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json'),
 			'cursor'
 		);
 
@@ -318,7 +326,6 @@ describe('generateImprovementPlan', () => {
 
 	it('repairs parsed plans that fail validation before falling back', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		vi.mocked(callLLM)
 			.mockResolvedValueOnce(JSON.stringify(plan))
 			.mockResolvedValueOnce(JSON.stringify(validPlan));
@@ -329,7 +336,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('Validation errors to fix');
@@ -340,7 +346,6 @@ describe('generateImprovementPlan', () => {
 
 	it('includes discovered validation command candidates in the prompt', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		await writeFile(join(repoDir, 'AGENTS.md'), 'Before completion, run dotnet test AiAppTriage.slnx.');
 		vi.mocked(callLLM).mockResolvedValue(JSON.stringify(validPlan));
 
@@ -350,7 +355,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(vi.mocked(callLLM).mock.calls[0][1]).toContain('VALIDATION COMMAND CANDIDATES');
@@ -359,7 +363,6 @@ describe('generateImprovementPlan', () => {
 
 	it('uses maintainability-specific plan hints for maintainability mode', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		await writeFile(join(repoDir, 'README.md'), '# Repo\n');
 		await writeFile(join(repoDir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest --run' } }));
 		const maintainabilityScore: ScoreResult = {
@@ -417,7 +420,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			maintainabilityScore,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json'),
 			'generic',
 			'maintainability'
 		);
@@ -432,7 +434,6 @@ describe('generateImprovementPlan', () => {
 
 	it('repairs plans that reference nonexistent repo paths', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		await mkdir(join(repoDir, 'src'), { recursive: true });
 		await writeFile(join(repoDir, 'src', 'RealFile.cs'), 'class RealFile {}');
 		const invalidReferencePlan = {
@@ -452,7 +453,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('src/DefinitelyMissing.cs');
@@ -460,7 +460,6 @@ describe('generateImprovementPlan', () => {
 
 	it('repairs plans that only create agent artifact files', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		const agentOnlyPlan = {
 			...validPlan,
 			prioritizedTasks: validPlan.prioritizedTasks.map((task, index) => ({
@@ -484,7 +483,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('should not only create agent artifact files');
@@ -492,7 +490,6 @@ describe('generateImprovementPlan', () => {
 
 	it('repairs plans that only use weak existence validation', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		const weakValidationPlan = {
 			...validPlan,
 			prioritizedTasks: validPlan.prioritizedTasks.map(task => ({
@@ -510,7 +507,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('validationCommands are too weak');
@@ -518,7 +514,6 @@ describe('generateImprovementPlan', () => {
 
 	it('uses one extra retry for quality-only validation failures', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		const weakValidationPlan = {
 			...validPlan,
 			prioritizedTasks: validPlan.prioritizedTasks.map(task => ({
@@ -537,7 +532,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(3);
@@ -549,7 +543,6 @@ describe('generateImprovementPlan', () => {
 
 	it('allows planned parent directories and generic SKILL.md wording', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		await mkdir(join(repoDir, 'src', 'lib'), { recursive: true });
 		await writeFile(join(repoDir, 'AGENTS.md'), '# Agent Guidance');
 		const directoryReferencePlan = {
@@ -576,7 +569,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.agent/rules/repo-guidance.md');
@@ -585,7 +577,6 @@ describe('generateImprovementPlan', () => {
 
 	it('allows planned target parent directory references with sentence punctuation', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		const planWithPlannedPathReferences = {
 			...validPlan,
 			prioritizedTasks: [{
@@ -603,7 +594,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('source/docs/agent-handoff.md');
@@ -612,7 +602,6 @@ describe('generateImprovementPlan', () => {
 
 	it('allows references to planned target basenames except generic SKILL.md', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		const planWithBasenameReferences = {
 			...validPlan,
 			prioritizedTasks: [{
@@ -630,7 +619,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(result.prioritizedTasks[0].targetFiles[0]).toBe('.agent/rules/core-conventions.md');
@@ -639,7 +627,6 @@ describe('generateImprovementPlan', () => {
 
 	it('includes repository inventory in repair prompts', async () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
-		const outDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plans-'));
 		await mkdir(join(repoDir, 'src', 'lib'), { recursive: true });
 		await writeFile(join(repoDir, 'src', 'lib', 'scorer.ts'), 'export const score = 1;');
 		const invalidReferencePlan = {
@@ -659,7 +646,6 @@ describe('generateImprovementPlan', () => {
 			'rubric',
 			score,
 			{ baseUrl: 'http://localhost:8080' },
-			join(outDir, 'improvement-plans.json')
 		);
 
 		expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('Repository path inventory');

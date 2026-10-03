@@ -7,8 +7,7 @@ import { parseEvaluationMode, readEvaluationRubric } from '$lib/evaluationModes'
 import {
 	assertImprovementPlanExportAllowed,
 	exportImprovementPlanToRepo,
-	generateImprovementPlan,
-	markImprovementPlanExported
+	generateImprovementPlan
 } from '$lib/improvementPlanner';
 import { improvementPlanResponseFormat } from '$lib/responseSchemas';
 import { storage } from '$lib/server/storage';
@@ -28,7 +27,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	const configs: RepoConfig[] = await readRepoConfig();
 	const repo = configs.find(repo => repo.name === name && repo.path === path);
 	if (!repo) {
-		throw error(400, `Repo "${name}" not found in repos.config.json`);
+		throw error(400, `Repo "${name}" is not a configured repo`);
 	}
 	if (!existsSync(path)) {
 		throw error(400, `Repo path not found: ${path}`);
@@ -58,7 +57,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			throw error(409, 'Generated plan belongs to a different repo path. Regenerate the plan before exporting.');
 		}
 		const exported = await exportImprovementPlanToRepo(path, plan);
-		return json({ ...(await markImprovementPlanExported(undefined, name, exported, mode)), exported });
+		return json({ ...storage().markImprovementPlanExported(name, exported, mode), exported });
 	}
 
 	if (action !== 'generate') {
@@ -83,7 +82,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			maxTokens: 4096,
 			apiKey: await readLlmApiKey(),
 			responseFormat: useJsonSchema ? improvementPlanResponseFormat : undefined
-		}, undefined, aiTooling, mode);
+		}, aiTooling, mode);
 		return json(plan);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);

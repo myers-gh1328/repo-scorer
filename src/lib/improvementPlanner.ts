@@ -9,7 +9,6 @@ import type { AiTooling } from './server/appSettings';
 import type {
 	CategoryScores,
 	ImprovementPlan,
-	ImprovementPlansStore,
 	ImprovementTask,
 	LLMConfig,
 	RepoConfig,
@@ -39,7 +38,6 @@ export async function generateImprovementPlan(
 	rubric: string,
 	score: ScoreResult,
 	llmConfig: LLMConfig,
-	plansPath: string | undefined,
 	aiTooling: AiTooling = 'generic',
 	evaluationMode: EvaluationMode = score.evaluationMode ?? DEFAULT_EVALUATION_MODE
 ): Promise<ImprovementPlan> {
@@ -79,19 +77,7 @@ export async function generateImprovementPlan(
 	plan.qualityWarnings = [...qualityWarnings];
 	plan.markdown = renderImprovementMarkdown(plan);
 
-	if (!plansPath) {
-		storage().saveImprovementPlan(repoName, plan, evaluationMode);
-		return plan;
-	}
-
-	let plans: ImprovementPlansStore = {};
-	try {
-		plans = JSON.parse(await readFile(plansPath, 'utf-8'));
-	} catch {
-		// file missing or corrupt - start fresh
-	}
-	plans[repoName] = plan;
-	await writeFile(plansPath, JSON.stringify(plans, null, 2));
+	storage().saveImprovementPlan(repoName, plan, evaluationMode);
 	return plan;
 }
 
@@ -134,31 +120,6 @@ export async function exportImprovementPlanToRepo(repoPath: string, plan: Improv
 	await ensureAgentsPointer(agentsPath, exportPath);
 
 	return { planPath: exportPath, agentsPath: 'AGENTS.md' };
-}
-
-export async function markImprovementPlanExported(
-	plansPath: string | undefined,
-	repoName: string,
-	exported: { planPath: string; agentsPath: string },
-	evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE
-): Promise<ImprovementPlan> {
-	if (!plansPath) {
-		return storage().markImprovementPlanExported(repoName, exported, evaluationMode);
-	}
-	const plans: ImprovementPlansStore = JSON.parse(await readFile(plansPath, 'utf-8'));
-	const plan = plans[repoName];
-	if (!plan) {
-		throw new Error('PLAN_NOT_FOUND');
-	}
-	const updated = {
-		...plan,
-		exportedAt: new Date().toISOString(),
-		exportedPlanPath: exported.planPath,
-		exportedAgentsPath: exported.agentsPath
-	};
-	plans[repoName] = updated;
-	await writeFile(plansPath, JSON.stringify(plans, null, 2));
-	return updated;
 }
 
 function tryParseImprovementPlan(raw: string, repoName: string, score: ScoreResult): ImprovementPlan | null {
