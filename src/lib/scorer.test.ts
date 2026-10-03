@@ -1,31 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 vi.mock('./llmClient', () => ({ callLLM: vi.fn() }));
 vi.mock('./duplication', () => ({ detectDuplication: vi.fn().mockResolvedValue({ status: 'unavailable' }) }));
 
-import { parseScoreResult, scoreRepo } from './scorer';
+import { scoreRepo, type ScoreRepoOptions } from './scorer';
 import { callLLM } from './llmClient';
 import { detectDuplication } from './duplication';
-import { bandForScore } from './types';
 import { loadRubricDefinition, type RubricDefinition } from './rubricSchema';
-
-const mockResult = {
-  score: 72,
-  band: 'Operational',
-  primaryLanguage: 'TypeScript',
-  categories: {
-    persistent_guidance: 12, scoped_rules: 7, skills: 7, specialized_agents: 6,
-    tool_manifests_mcp: 6, validation_reproducibility: 9, ci_pr_automation: 7,
-    security_sandboxing_hooks: 7, domain_context: 4, governance_observability: 3,
-    versioning_provenance: 2, onboarding_discoverability: 2
-  },
-  qualityFlags: ['Good AGENTS.md'],
-  riskFlags: ['No CI'],
-  recommendations: ['Add CI workflow']
-};
+import { resetStorageForTests, storage } from './server/storage';
 
 const tinyRubric: RubricDefinition = {
   version: 'test',
@@ -46,162 +31,117 @@ const tinyRubric: RubricDefinition = {
   }
 };
 
+const llmConfig = { baseUrl: 'http://localhost:8080' };
+const categoryResponse = (score: number, extra: Record<string, unknown> = {}) =>
+  JSON.stringify({ score, evidence: [], gaps: [], ...extra });
+
+let repoDir: string;
+let dataDir: string;
+
+function options(overrides: Partial<ScoreRepoOptions> = {}): ScoreRepoOptions {
+  return {
+    name: 'myrepo',
+    repoPath: repoDir,
+    rubric: 'rubric',
+    rubricDefinition: tinyRubric,
+    llmConfig,
+    ...overrides
+  };
+}
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  repoDir = await mkdtemp(join(tmpdir(), 'scorer-repo-'));
+  dataDir = await mkdtemp(join(tmpdir(), 'scorer-data-'));
+  process.env.REPO_SCORER_DATA_DIR = dataDir;
+  process.env.REPO_SCORER_DB_PATH = join(dataDir, 'repo-scorer.sqlite');
+  resetStorageForTests();
+  storage().addRepo({ name: 'myrepo', path: repoDir });
+  vi.mocked(callLLM).mockResolvedValue(categoryResponse(3));
+});
+
+afterEach(async () => {
+  resetStorageForTests();
+  delete process.env.REPO_SCORER_DATA_DIR;
+  delete process.env.REPO_SCORER_DB_PATH;
+  await rm(repoDir, { recursive: true, force: true });
+  await rm(dataDir, { recursive: true, force: true });
+});
+
 describe('scoreRepo', () => {
-  let repoDir: string;
-  let tmpDir: string;
-  let scoresPath: string;
-
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    repoDir = await mkdtemp(join(tmpdir(), 'scorer-repo-'));
-    tmpDir = await mkdtemp(join(tmpdir(), 'scorer-out-'));
-    scoresPath = join(tmpDir, 'scores.json');
-    vi.mocked(callLLM).mockResolvedValue(JSON.stringify(mockResult));
-  });
-
   it('runs the duplication check only for maintainability scoring', async () => {
-    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
+    await scoreRepo(options());
     expect(vi.mocked(detectDuplication)).not.toHaveBeenCalled();
 
-    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath, undefined, undefined, 'maintainability');
+    await scoreRepo(options({ evaluationMode: 'maintainability' }));
     expect(vi.mocked(detectDuplication)).toHaveBeenCalledWith(repoDir);
   });
 
-  it('returns a ScoreResult with scoredAt populated', async () => {
-    const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
-    expect(result.score).toBe(65);
-    expect(result.rawScore).toBe(72);
-    expect(result.band).toBe('Operational');
+  it('returns a ScoreResult with scoredAt and metadata populated', async () => {
+    const result = await scoreRepo(options({ metadata: { scannerEvidenceVersion: 'test-scanner' } }));
+
+    expect(result.score).toBe(6);
+    expect(result.evaluationMode).toBe('ai-readiness');
+    expect(result.scannerEvidenceVersion).toBe('test-scanner');
     expect(new Date(result.scoredAt).getTime()).toBeGreaterThan(0);
   });
 
-  it('writes the result to scores.json under the repo name', async () => {
-    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
+  it('persists the score and history to storage per evaluation mode', async () => {
+    await scoreRepo(options());
+    vi.mocked(callLLM).mockResolvedValue(categoryResponse(1));
+    await scoreRepo(options({ evaluationMode: 'maintainability' }));
 
-    const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
-    expect(stored.myrepo.score).toBe(65);
-    expect(stored.myrepo.rawScore).toBe(72);
-  });
-
-  it('appends compact score history when a history path is provided', async () => {
-    const historyPath = join(tmpDir, 'score-history.json');
-
-    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath, undefined, historyPath);
-
-    const stored = JSON.parse(await readFile(historyPath, 'utf-8'));
-    expect(stored.myrepo.compact).toHaveLength(1);
-    expect(stored.myrepo.compact[0]).toMatchObject({
-      finalScore: 65,
-      finalBand: 'Operational',
-      appliedCapCount: 2
-    });
-    expect(stored.myrepo.full).toHaveLength(1);
-    expect(stored.myrepo.full[0].score).toBe(65);
-  });
-
-  it('preserves existing scores for other repos', async () => {
-    await writeFile(scoresPath, JSON.stringify({ otherapp: { score: 50 } }));
-
-    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
-
-    const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
-    expect(stored.otherapp.score).toBe(50);
-    expect(stored.myrepo.score).toBe(65);
-  });
-
-  it('preserves both results when different repos persist concurrently', async () => {
-    await Promise.all([
-      scoreRepo('repo-a', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath),
-      scoreRepo('repo-b', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath)
-    ]);
-
-    const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
-    expect(stored['repo-a'].score).toBe(65);
-    expect(stored['repo-b'].score).toBe(65);
+    expect(storage().getScore('myrepo')).toMatchObject({ score: 6, finalScore: 6 });
+    expect(storage().getScore('myrepo', 'maintainability')).toMatchObject({ score: 2 });
+    expect(storage().getScoreHistory('myrepo')?.compact).toHaveLength(1);
+    expect(storage().getScoreHistory('myrepo')?.compact[0]).toMatchObject({ finalScore: 6, finalBand: 'High' });
   });
 
   it('throws LLM_UNREACHABLE when the LLM call fails', async () => {
     vi.mocked(callLLM).mockRejectedValue(new Error('ECONNREFUSED'));
 
-    await expect(
-      scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath)
-    ).rejects.toThrow('LLM_UNREACHABLE');
+    await expect(scoreRepo(options())).rejects.toThrow('LLM_UNREACHABLE: ECONNREFUSED');
+    expect(storage().getScore('myrepo')).toBeNull();
   });
 
-  it('retries once on malformed JSON and succeeds on second call', async () => {
+  it('asks the model to repair malformed category output and uses the repaired result', async () => {
     vi.mocked(callLLM)
       .mockResolvedValueOnce('not valid json {{{{')
-      .mockResolvedValueOnce(JSON.stringify(mockResult));
+      .mockResolvedValueOnce(categoryResponse(5))
+      .mockResolvedValueOnce(categoryResponse(3));
 
-    const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
-    expect(result.score).toBe(65);
-    expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(2);
+    const result = await scoreRepo(options());
+
+    expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('Convert the text below into one valid JSON object for category "alpha"');
+    expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('not valid json');
+    expect(result.categories).toEqual({ alpha: 5, beta: 3 });
   });
 
-  it('preserves rawCategories and records applied caps for inflated model scores', async () => {
-    await writeFile(join(repoDir, 'AGENTS.md'), '# Agent guide');
-    vi.mocked(callLLM).mockResolvedValue(JSON.stringify({
-      ...mockResult,
-      categories: {
-        ...mockResult.categories,
-        skills: 10,
-        ci_pr_automation: 10,
-        tool_manifests_mcp: 10
-      }
-    }));
-
-    const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
-
-    expect(result.rawCategories?.skills).toBe(10);
-    expect(result.categories.skills).toBe(4);
-    expect(result.categories.ci_pr_automation).toBe(3);
-    // A missing MCP manifest is neutral in rubric v2.0; the value is only clamped to the category max.
-    expect(result.categories.tool_manifests_mcp).toBe(6);
-    expect(result.appliedCaps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ category: 'skills', originalScore: 10, cappedScore: 4 }),
-      expect.objectContaining({ category: 'ci_pr_automation', originalScore: 10, cappedScore: 3 })
-    ]));
-    expect(result.appliedCaps?.some(cap => cap.category === 'tool_manifests_mcp')).toBe(false);
-
-    const stored = JSON.parse(await readFile(scoresPath, 'utf-8'));
-    expect(stored.myrepo.rawCategories.skills).toBe(10);
-    expect(stored.myrepo.appliedCaps).toHaveLength(2);
-  });
-
-  it('applies caps after repair retry succeeds', async () => {
-    vi.mocked(callLLM)
-      .mockResolvedValueOnce('not valid json {{{{')
-      .mockResolvedValueOnce(JSON.stringify({
-        ...mockResult,
-        categories: {
-          ...mockResult.categories,
-          skills: 10
-        }
-      }));
-
-    const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
-
-    expect(result.rawCategories?.skills).toBe(10);
-    expect(result.categories.skills).toBe(4);
-  });
-
-  it('throws PARSE_FAILED when both attempts return malformed JSON', async () => {
+  it('throws PARSE_FAILED when the repair attempt is also malformed', async () => {
     vi.mocked(callLLM).mockResolvedValue('not valid json');
 
-    await expect(
-      scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath)
-    ).rejects.toThrow('PARSE_FAILED');
+    await expect(scoreRepo(options())).rejects.toThrow('PARSE_FAILED');
   });
 
-  it('asks the model to repair malformed output on retry', async () => {
-    vi.mocked(callLLM)
-      .mockResolvedValueOnce('not valid json {{{{')
-      .mockResolvedValueOnce(JSON.stringify(mockResult));
+  it('applies evidence caps from the real rubric and records them', async () => {
+    await writeFile(join(repoDir, 'AGENTS.md'), '# Agent guide');
+    const definition = loadRubricDefinition(await readFile('rubric.schema.json', 'utf-8'));
+    vi.mocked(callLLM).mockImplementation(async (_config, prompt) => {
+      const key = /^Key: (\S+)$/m.exec(prompt)?.[1] ?? '';
+      return categoryResponse(definition.categoryMax[key] ?? 0);
+    });
 
-    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath);
+    const result = await scoreRepo(options({ rubricDefinition: definition }));
 
-    expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('Convert the text below into one valid JSON object');
-    expect(vi.mocked(callLLM).mock.calls[1][1]).toContain('not valid json');
+    expect(result.rawCategories?.skills).toBe(definition.categoryMax.skills);
+    expect(result.categories.skills).toBe(4);
+    expect(result.categories.ci_pr_automation).toBe(3);
+    expect(result.appliedCaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'skills', cappedScore: 4 }),
+      expect.objectContaining({ category: 'ci_pr_automation', cappedScore: 3 })
+    ]));
+    expect(storage().getScore('myrepo')?.appliedCaps).toEqual(result.appliedCaps);
   });
 
   it('scores each rubric category separately and aggregates deterministically', async () => {
@@ -218,14 +158,7 @@ describe('scoreRepo', () => {
         gaps: []
       }));
 
-    const result = await scoreRepo(
-      'myrepo',
-      repoDir,
-      'rubric',
-      { baseUrl: 'http://localhost:8080' },
-      scoresPath,
-      tinyRubric
-    );
+    const result = await scoreRepo(options());
 
     expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(callLLM).mock.calls[0][1]).toContain('Alpha quality');
@@ -237,24 +170,15 @@ describe('scoreRepo', () => {
   });
 
   it('uses schema response formatting for per-category scoring when enabled', async () => {
-    vi.mocked(callLLM)
-      .mockResolvedValueOnce(JSON.stringify({ score: 5, evidence: [], gaps: [] }))
-      .mockResolvedValueOnce(JSON.stringify({ score: 3, evidence: [], gaps: [] }));
-
-    await scoreRepo(
-      'myrepo',
-      repoDir,
-      'rubric',
-      {
-        baseUrl: 'http://localhost:8080',
+    await scoreRepo(options({
+      llmConfig: {
+        ...llmConfig,
         responseFormat: {
           type: 'json_schema',
           json_schema: { name: 'full_score', schema: {} }
         }
-      },
-      scoresPath,
-      tinyRubric
-    );
+      }
+    }));
 
     expect(vi.mocked(callLLM).mock.calls[0][0].responseFormat?.json_schema.name).toBe('category_score_alpha');
     expect(vi.mocked(callLLM).mock.calls[1][0].responseFormat?.json_schema.name).toBe('category_score_beta');
@@ -263,11 +187,8 @@ describe('scoreRepo', () => {
   it('prioritizes category-relevant evidence before unrelated files', async () => {
     await writeFile(join(repoDir, 'AGENTS.md'), '# Agent Guide');
     await writeFile(join(repoDir, 'README.md'), '# Readme');
-    vi.mocked(callLLM)
-      .mockResolvedValueOnce(JSON.stringify({ score: 5, evidence: [], gaps: [] }))
-      .mockResolvedValueOnce(JSON.stringify({ score: 3, evidence: [], gaps: [] }));
 
-    await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath, tinyRubric);
+    await scoreRepo(options());
 
     const firstPrompt = vi.mocked(callLLM).mock.calls[0][1];
     expect(firstPrompt.indexOf('AGENTS.md')).toBeLessThan(firstPrompt.indexOf('README.md'));
@@ -306,8 +227,8 @@ describe('scoreRepo', () => {
       gaps: ['No MCP manifest found']
     }));
 
-    const result = await scoreRepo('myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' }, scoresPath, matureRubric);
-    const stored = JSON.parse(await readFile(scoresPath, 'utf-8')).myrepo;
+    const result = await scoreRepo(options({ rubricDefinition: matureRubric }));
+    const stored = storage().getScore('myrepo');
 
     expect(result.modelScore).toBe(94);
     expect(result.cappedScore).toBe(94);
@@ -319,24 +240,16 @@ describe('scoreRepo', () => {
       id: 'has_tool_access_governance',
       passed: false
     }));
-    expect(stored.rubricVersion).toBe('test-mature');
-    expect(stored.finalScore).toBe(89);
+    expect(stored?.rubricVersion).toBe('test-mature');
+    expect(stored?.finalScore).toBe(89);
   });
-});
 
-describe('scoreRepo with rubric profiles', () => {
   it('attaches cloud and local profile scores computed from the final categories', async () => {
-    vi.clearAllMocks();
-    const repoDir = await mkdtemp(join(tmpdir(), 'scorer-profiles-repo-'));
-    const outDir = await mkdtemp(join(tmpdir(), 'scorer-profiles-out-'));
     await writeFile(join(repoDir, 'AGENTS.md'), 'y'.repeat(8_000));
     const definition = loadRubricDefinition(await readFile('rubric.schema.json', 'utf-8'));
     vi.mocked(callLLM).mockResolvedValue(JSON.stringify({ score: 999, evidence: ['AGENTS.md'], gaps: [] }));
 
-    const result = await scoreRepo(
-      'myrepo', repoDir, 'rubric', { baseUrl: 'http://localhost:8080' },
-      join(outDir, 'scores.json'), definition, undefined, 'ai-readiness', { guidanceTool: 'generic' }
-    );
+    const result = await scoreRepo(options({ rubricDefinition: definition, guidanceTool: 'generic' }));
 
     expect(result.resultVersion).toBe(3);
     expect(result.rubricVersion).toBe('2.0');
@@ -344,121 +257,5 @@ describe('scoreRepo with rubric profiles', () => {
     expect(result.profileScores?.cloud.score).toBe(result.score);
     expect(result.profileScores?.['local-medium'].guidanceBudget).toMatchObject({ estimatedTokens: 2000, withinBudget: true });
     expect(result.profileScores?.['local-tiny'].guidanceBudget).toMatchObject({ estimatedTokens: 2000, factor: 0.5 });
-  });
-});
-
-describe('parseScoreResult', () => {
-  it('parses raw JSON', () => {
-    expect(parseScoreResult(JSON.stringify(mockResult)).score).toBe(72);
-  });
-
-  it('parses fenced JSON', () => {
-    const raw = `\`\`\`json\n${JSON.stringify(mockResult)}\n\`\`\``;
-    expect(parseScoreResult(raw).band).toBe('Operational');
-  });
-
-  it('extracts the first complete JSON object from surrounding text', () => {
-    const raw = `Here is the score:\n${JSON.stringify(mockResult)}\nDone.`;
-    expect(parseScoreResult(raw).primaryLanguage).toBe('TypeScript');
-  });
-
-  it('normalizes structured gap objects without using severity for score or band', () => {
-    const raw = JSON.stringify({
-      ...mockResult,
-      categories: {
-        ...mockResult.categories,
-        tool_manifests_mcp: 9
-      },
-      categoryRationales: {
-        tool_manifests_mcp: {
-          score: 9,
-          evidence: ['tool docs found'],
-          gaps: [
-            {
-              description: 'No MCP manifest found',
-              severity: 'blocking',
-              evidenceNeeded: ['mcp.json']
-            }
-          ]
-        }
-      }
-    });
-
-    const result = parseScoreResult(raw);
-
-    expect(result.categoryRationales?.tool_manifests_mcp?.gaps).toEqual(['No MCP manifest found']);
-    expect(result.categoryRationales?.tool_manifests_mcp?.structuredGaps).toEqual([
-      {
-        description: 'No MCP manifest found',
-        severity: 'blocking',
-        evidenceNeeded: ['mcp.json']
-      }
-    ]);
-    expect(result.band).toBe(bandForScore(result.score));
-  });
-
-  it('normalizes numeric strings and recomputes score and band from categories', () => {
-    const raw = JSON.stringify({
-      ...mockResult,
-      score: 999,
-      band: 'Mature',
-      categories: {
-        ...mockResult.categories,
-        persistent_guidance: '12'
-      }
-    });
-
-    const result = parseScoreResult(raw);
-
-    expect(result.categories.persistent_guidance).toBe(12);
-    expect(result.rawCategories?.persistent_guidance).toBe(12);
-    expect(result.score).toBe(72);
-    expect(result.band).toBe('Operational');
-  });
-
-  it('parses optional category rationales', () => {
-    const result = parseScoreResult(JSON.stringify({
-      ...mockResult,
-      categoryRationales: {
-        skills: {
-          score: 7,
-          evidence: ['docs/agent/TASK_RECIPES.md'],
-          gaps: ['No SKILL.md files found']
-        }
-      }
-    }));
-
-    expect(result.categoryRationales?.skills?.evidence).toEqual(['docs/agent/TASK_RECIPES.md']);
-    expect(result.categoryRationales?.skills?.gaps).toEqual(['No SKILL.md files found']);
-  });
-
-  it('defaults optional string arrays when the model omits them', () => {
-    const { qualityFlags, riskFlags, recommendations, ...withoutArrays } = mockResult;
-
-    const result = parseScoreResult(JSON.stringify(withoutArrays));
-
-    expect(result.qualityFlags).toEqual([]);
-    expect(result.riskFlags).toEqual([]);
-    expect(result.recommendations).toEqual([]);
-  });
-
-  it('clamps category values to their allowed ranges', () => {
-    const raw = JSON.stringify({
-      ...mockResult,
-      categories: {
-        ...mockResult.categories,
-        persistent_guidance: 999,
-        versioning_provenance: -5
-      }
-    });
-
-    const result = parseScoreResult(raw);
-
-    expect(result.categories.persistent_guidance).toBe(12);
-    expect(result.categories.versioning_provenance).toBe(0);
-  });
-
-  it('rejects responses missing the categories object', () => {
-    expect(() => parseScoreResult(JSON.stringify({ score: 10 }))).toThrow('categories');
   });
 });

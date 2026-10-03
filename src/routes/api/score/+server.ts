@@ -50,20 +50,28 @@ export const POST: RequestHandler = async ({ request }) => {
 
     const { llmBaseUrl, llmModel, useJsonSchema, aiTooling } = await readAppSettings();
 
-    const result = await scoreRepo(name, path, rubric, {
-      baseUrl: llmBaseUrl,
-      model: llmModel,
-      maxTokens: 4096,
-      apiKey: await readLlmApiKey(),
-      responseFormat: useJsonSchema ? scoreResponseFormatForRubric(rubricDefinition) : undefined
-    }, undefined, rubricDefinition, undefined, mode, {
-      scannerEvidenceVersion: '2026-10-01.2',
+    const result = await scoreRepo({
+      name,
+      repoPath: path,
+      rubric,
+      rubricDefinition,
+      llmConfig: {
+        baseUrl: llmBaseUrl,
+        model: llmModel,
+        maxTokens: 4096,
+        apiKey: await readLlmApiKey(),
+        responseFormat: useJsonSchema ? scoreResponseFormatForRubric(rubricDefinition) : undefined
+      },
+      evaluationMode: mode,
       guidanceTool: aiTooling,
-      ...(runtimeSupport ? {
-        referenceDataVersion: runtimeSupport.version,
-        referenceDataLastUpdated: runtimeSupport.lastUpdated,
-        runtimeSupport
-      } : {})
+      runtimeSupport: runtimeSupport ?? undefined,
+      metadata: {
+        scannerEvidenceVersion: '2026-10-01.2',
+        ...(runtimeSupport ? {
+          referenceDataVersion: runtimeSupport.version,
+          referenceDataLastUpdated: runtimeSupport.lastUpdated
+        } : {})
+      }
     });
     return json(result);
   } catch (e) {

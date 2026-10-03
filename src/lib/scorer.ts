@@ -1,87 +1,18 @@
-import { readFile, writeFile } from 'node:fs/promises';
 import { scanRepo } from './scanner';
-import { buildCategoryPrompt, buildPrompt } from './promptBuilder';
+import { buildCategoryPrompt } from './promptBuilder';
 import { callLLM } from './llmClient';
 import { applyEvidenceCaps } from './scoreCaps';
 import { applyConsistencyChecks } from './consistencyChecks';
 import { computeProfileScores } from './profileScores';
-import { updateScoringProgress, withScoreWriteLock } from './server/scoreConcurrency';
-import { appendScoreHistory } from './scoreHistory';
-import { CATEGORY_MAX, DEFAULT_EVALUATION_MODE, bandForScore } from './types';
+import { updateScoringProgress } from './server/scoreConcurrency';
+import { DEFAULT_EVALUATION_MODE } from './types';
 import { storage } from './server/storage';
 import type { RuntimeSupportMatrix } from './reference/runtimeSupport';
 import type { GuidanceTool } from './scanner';
-import type { CategoryRationale, CategoryRationales, CategoryScores, EvaluationMode, LLMConfig, LLMResponseFormat, ScoreResult, ScoresStore, StructuredGap } from './types';
+import type { CategoryRationale, CategoryRationales, CategoryScores, EvaluationMode, LLMConfig, LLMResponseFormat, ScoreResult, StructuredGap } from './types';
 import type { RubricCategoryDefinition, RubricDefinition } from './rubricSchema';
 
-const CATEGORY_KEYS = Object.keys(CATEGORY_MAX);
 const MAX_CATEGORY_EVIDENCE_CHARS = 48_000;
-
-export function parseScoreResult(raw: string): ScoreResult {
-  const trimmed = raw.trim();
-  const candidates = [
-    trimmed,
-    trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, ''),
-    extractJsonObject(trimmed)
-  ].filter((candidate): candidate is string => Boolean(candidate));
-
-  let lastError: unknown;
-  for (const candidate of candidates) {
-    try {
-      return normalizeScoreResult(JSON.parse(candidate));
-    } catch (e) {
-      lastError = e;
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error('Invalid JSON');
-}
-
-function normalizeScoreResult(value: unknown): ScoreResult {
-  if (!isRecord(value)) {
-    throw new Error('Score result must be an object');
-  }
-  if (!isRecord(value.categories)) {
-    throw new Error('Score result missing categories object');
-  }
-
-  const categories = {} as CategoryScores;
-  for (const key of CATEGORY_KEYS) {
-    categories[key] = parseCategoryScore(key, value.categories[key]);
-  }
-
-  const score = CATEGORY_KEYS.reduce((sum, key) => sum + (categories[key] ?? 0), 0);
-  const primaryLanguage = typeof value.primaryLanguage === 'string' && value.primaryLanguage.trim()
-    ? value.primaryLanguage.trim()
-    : 'Unknown';
-
-  return {
-    scoredAt: typeof value.scoredAt === 'string' ? value.scoredAt : '',
-    score,
-    rawScore: score,
-    band: bandForScore(score),
-    primaryLanguage,
-    rawCategories: { ...categories },
-    categories,
-    categoryRationales: normalizeCategoryRationales(value.categoryRationales, categories),
-    appliedCaps: [],
-    qualityFlags: normalizeStringArray(value.qualityFlags),
-    riskFlags: normalizeStringArray(value.riskFlags),
-    recommendations: normalizeStringArray(value.recommendations)
-  };
-}
-
-function parseCategoryScore(key: string, value: unknown): number {
-  const numeric = typeof value === 'number'
-    ? value
-    : typeof value === 'string'
-      ? Number(value)
-      : Number.NaN;
-  if (!Number.isFinite(numeric)) {
-    throw new Error(`Category "${key}" must be numeric`);
-  }
-  const rounded = Math.round(numeric);
-  return Math.min(Math.max(rounded, 0), CATEGORY_MAX[key] ?? 100);
-}
 
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -89,22 +20,6 @@ function normalizeStringArray(value: unknown): string[] {
     .filter((item): item is string => typeof item === 'string')
     .map(item => item.trim())
     .filter(Boolean);
-}
-
-function normalizeCategoryRationales(value: unknown, categories: CategoryScores): CategoryRationales {
-  if (!isRecord(value)) return {};
-  const rationales: CategoryRationales = {};
-  for (const key of CATEGORY_KEYS) {
-    const raw = value[key];
-    if (!isRecord(raw)) continue;
-    rationales[key] = {
-      score: parseCategoryScore(key, raw.score ?? categories[key]),
-      evidence: normalizeStringArray(raw.evidence),
-      gaps: normalizeGapDescriptions(raw.gaps),
-      structuredGaps: normalizeStructuredGaps(raw.structuredGaps ?? raw.gaps)
-    } satisfies CategoryRationale;
-  }
-  return rationales;
 }
 
 function normalizeGapDescriptions(value: unknown): string[] {
@@ -182,137 +97,79 @@ function extractJsonObject(raw: string): string | null {
   return null;
 }
 
-export async function scoreRepo(
-  name: string,
-  repoPath: string,
-  rubric: string,
-  llmConfig: LLMConfig,
-  scoresPath?: string,
-  rubricDefinition?: RubricDefinition,
-  historyPath?: string,
-  evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE,
-  metadata: Pick<ScoreResult, 'referenceDataVersion' | 'referenceDataLastUpdated' | 'scannerEvidenceVersion'> & { runtimeSupport?: RuntimeSupportMatrix; guidanceTool?: GuidanceTool } = {}
-): Promise<ScoreResult> {
-  const { runtimeSupport, guidanceTool, ...scoreMetadata } = metadata;
+export interface ScoreRepoOptions {
+  name: string;
+  repoPath: string;
+  rubric: string;
+  rubricDefinition: RubricDefinition;
+  llmConfig: LLMConfig;
+  evaluationMode?: EvaluationMode;
+  runtimeSupport?: RuntimeSupportMatrix;
+  guidanceTool?: GuidanceTool;
+  metadata?: Pick<ScoreResult, 'referenceDataVersion' | 'referenceDataLastUpdated' | 'scannerEvidenceVersion'>;
+}
+
+export async function scoreRepo({
+  name,
+  repoPath,
+  rubric,
+  rubricDefinition,
+  llmConfig,
+  evaluationMode = DEFAULT_EVALUATION_MODE,
+  runtimeSupport,
+  guidanceTool,
+  metadata = {}
+}: ScoreRepoOptions): Promise<ScoreResult> {
+  const totalSteps = rubricDefinition.categories.length + 4;
   updateScoringProgress(name, {
     evaluationMode,
     phase: 'scan',
     phaseLabel: 'Scanning repository',
     currentStep: 0,
-    totalSteps: rubricDefinition ? rubricDefinition.categories.length + 4 : 4
+    totalSteps
   });
   const scan = await scanRepo(repoPath, runtimeSupport, { duplication: evaluationMode === 'maintainability' });
-  if (rubricDefinition) {
-    let result = await scoreRepoByCategory(rubricDefinition, rubric, scan, llmConfig, name, evaluationMode);
-    updateScoringProgress(name, {
-      evaluationMode,
-      phase: 'caps',
-      phaseLabel: 'Applying deterministic evidence caps',
-      currentStep: rubricDefinition.categories.length + 1,
-      totalSteps: rubricDefinition.categories.length + 4
-    });
-    result = applyEvidenceCaps(result, scan.evidence, rubricDefinition);
-    result.cappedScore = result.score;
-    result.cappedBand = rubricDefinition.bandForScore(result.cappedScore);
-    updateScoringProgress(name, {
-      evaluationMode,
-      phase: 'consistency',
-      phaseLabel: 'Checking band consistency constraints',
-      currentStep: rubricDefinition.categories.length + 2,
-      totalSteps: rubricDefinition.categories.length + 4
-    });
-    result = applyConsistencyChecks(result, scan.evidence, rubricDefinition);
-    const profileScores = computeProfileScores(result, scan.evidence, rubricDefinition, guidanceTool);
-    if (profileScores) {
-      result = { ...result, resultVersion: 3, profileScores };
-    }
-    result = { ...result, ...scoreMetadata };
-    result.scoredAt = new Date().toISOString();
-    updateScoringProgress(name, {
-      evaluationMode,
-      phase: 'persist',
-      phaseLabel: 'Persisting score and history',
-      currentStep: rubricDefinition.categories.length + 3,
-      totalSteps: rubricDefinition.categories.length + 4
-    });
-    await persistScore(scoresPath, name, result, historyPath, evaluationMode);
-    updateScoringProgress(name, {
-      evaluationMode,
-      phase: 'complete',
-      phaseLabel: 'Scoring complete',
-      currentStep: rubricDefinition.categories.length + 4,
-      totalSteps: rubricDefinition.categories.length + 4
-    });
-    return result;
+  let result = await scoreRepoByCategory(rubricDefinition, rubric, scan, llmConfig, name, evaluationMode);
+  updateScoringProgress(name, {
+    evaluationMode,
+    phase: 'caps',
+    phaseLabel: 'Applying deterministic evidence caps',
+    currentStep: rubricDefinition.categories.length + 1,
+    totalSteps
+  });
+  result = applyEvidenceCaps(result, scan.evidence, rubricDefinition);
+  result.cappedScore = result.score;
+  result.cappedBand = rubricDefinition.bandForScore(result.cappedScore);
+  updateScoringProgress(name, {
+    evaluationMode,
+    phase: 'consistency',
+    phaseLabel: 'Checking band consistency constraints',
+    currentStep: rubricDefinition.categories.length + 2,
+    totalSteps
+  });
+  result = applyConsistencyChecks(result, scan.evidence, rubricDefinition);
+  const profileScores = computeProfileScores(result, scan.evidence, rubricDefinition, guidanceTool);
+  if (profileScores) {
+    result = { ...result, resultVersion: 3, profileScores };
   }
-
-  const prompt = buildPrompt(rubric, scan, evaluationMode);
-
-  let raw: string;
-  try {
-    raw = await callLLM(llmConfig, prompt);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`LLM_UNREACHABLE: ${msg}`);
-  }
-
-  let result = tryParseScoreResult(raw);
-  if (!result) {
-    let raw2: string;
-    try {
-      raw2 = await callLLM(llmConfig, buildRepairPrompt(raw));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(`LLM_UNREACHABLE: ${msg}`);
-    }
-    result = tryParseScoreResult(raw2);
-    if (!result) {
-      throw new Error('PARSE_FAILED');
-    }
-  }
-
-  result = applyEvidenceCaps(result, scan.evidence);
-  result = { ...result, ...scoreMetadata };
+  result = { ...result, ...metadata };
   result.scoredAt = new Date().toISOString();
-
   updateScoringProgress(name, {
     evaluationMode,
     phase: 'persist',
     phaseLabel: 'Persisting score and history',
-    currentStep: 3,
-    totalSteps: 4
+    currentStep: rubricDefinition.categories.length + 3,
+    totalSteps
   });
-  result.evaluationMode = evaluationMode;
-  await persistScore(scoresPath, name, result, historyPath, evaluationMode);
+  storage().saveScoreWithHistory(name, result, evaluationMode);
   updateScoringProgress(name, {
     evaluationMode,
     phase: 'complete',
     phaseLabel: 'Scoring complete',
-    currentStep: 4,
-    totalSteps: 4
+    currentStep: totalSteps,
+    totalSteps
   });
-
   return result;
-}
-
-async function persistScore(scoresPath: string | undefined, name: string, result: ScoreResult, historyPath?: string, evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE): Promise<void> {
-  if (!scoresPath) {
-    storage().saveScoreWithHistory(name, result, evaluationMode);
-    return;
-  }
-  await withScoreWriteLock(async () => {
-    let scores: ScoresStore = {};
-    try {
-      scores = JSON.parse(await readFile(scoresPath, 'utf-8'));
-    } catch {
-      // file missing or corrupt — start fresh
-    }
-    scores[name] = { ...result, evaluationMode };
-    await writeFile(scoresPath, JSON.stringify(scores, null, 2));
-  });
-  if (historyPath) {
-    await appendScoreHistory(historyPath, name, { ...result, evaluationMode });
-  }
 }
 
 async function scoreRepoByCategory(
@@ -576,39 +433,4 @@ function inferPrimaryLanguage(files: { relativePath: string }[]): string {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
-}
-
-function tryParseScoreResult(raw: string): ScoreResult | null {
-  try {
-    return parseScoreResult(raw);
-  } catch {
-    return null;
-  }
-}
-
-function buildRepairPrompt(raw: string): string {
-  return `Convert the text below into one valid JSON object for this exact schema. Return raw JSON only, no markdown.
-
-Required schema:
-{
-  "score": <integer 0-100>,
-  "band": <"Fragile" | "Emerging" | "Operational" | "Managed" | "Mature">,
-  "primaryLanguage": <string>,
-  "categories": {
-${CATEGORY_KEYS.map(key => `    "${key}": <integer 0-${CATEGORY_MAX[key]}>`).join(',\n')}
-  },
-  "categoryRationales": {
-    "<category_key>": {
-      "score": <integer matching that category score>,
-      "evidence": [<strings citing inventory facts or scanned file paths>],
-      "gaps": [<strings describing missing or weak evidence>]
-    }
-  },
-  "qualityFlags": [<strings>],
-  "riskFlags": [<strings>],
-  "recommendations": [<strings>]
-}
-
-Text to convert:
-${raw}`;
 }
