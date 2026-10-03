@@ -24,7 +24,7 @@ Evaluation modes (`src/lib/evaluationModes.ts`):
 3. `scoreCaps.ts` applies deterministic evidence caps.
 4. `consistencyChecks.ts` enforces band constraints.
 5. `profileScores.ts` computes Cloud/Local profile scores.
-6. Result and history persist to SQLite via `src/lib/server/storage.ts`.
+6. Result and history persist to SQLite via `src/lib/server/storage.ts` (schema migrations in `storageSchema.ts`, one-time JSON import in `storageLegacyImport.ts`).
 
 ## Tech Stack
 
@@ -50,10 +50,11 @@ python -m mlx_lm.server --model <your-model-path> --port 8080
 
 ## Configuration and State
 
-- `.env` — `LLM_BASE_URL`, `LLM_MODEL`, `AI_TOOLING`, `USE_JSON_SCHEMA`, `LOCAL_MODEL_TIER`. Written by the Settings page; see `.env.example`. Legacy `MLX_BASE_URL`/`MLX_MODEL` are migrated on read.
+- `.env` — `LLM_BASE_URL`, `LLM_MODEL`, `AI_TOOLING`, `USE_JSON_SCHEMA`, `LOCAL_MODEL_TIER`. Written by the Settings page; see `.env.example`. Legacy `MLX_BASE_URL`/`MLX_MODEL` are migrated on read. Optional `LLM_API_KEY` is sent as a Bearer token; it is never returned by `/api/settings`.
 - `repo-scorer.sqlite` — repos, scores, history, improvement plans. Gitignored.
 - Optional env overrides: `REPO_SCORER_DB_PATH`, `REPO_SCORER_DATA_DIR`, `REPO_SCORER_ENV_PATH`, `REPO_SEARCH_ROOTS` (comma-separated roots for repo discovery).
-- Model ids are normalized in `src/lib/modelCatalog.ts`; the id `local` is blocked.
+- Model ids are normalized in `src/lib/modelCatalog.ts` (`KNOWN_MODEL_IDS` skip server validation); the id `local` is blocked.
+- `callLLM` applies a per-attempt timeout and retries connection errors and 408/429/5xx; see `LLMConfig` in `src/lib/types.ts`.
 - Legacy JSON files (`repos.config.json`, `scores.json`, `score-history.json`, `improvement-plans.json`) are imported into SQLite once on first start, then ignored.
 
 ## Rubric Changes
