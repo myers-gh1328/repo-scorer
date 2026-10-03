@@ -1,7 +1,8 @@
 import type { RequestHandler } from './$types';
 import { error, json } from '@sveltejs/kit';
-import { normalizeBaseUrl, readAppSettings, writeAppSettings } from '$lib/server/appSettings';
-import { DEFAULT_OPENAI_MODEL_ID, OPENAI_MODEL_IDS, isBlockedModelId } from '$lib/modelCatalog';
+import { normalizeBaseUrl, readAppSettings, llmApiKeyFor, writeAppSettings } from '$lib/server/appSettings';
+import { llmRequestHeaders } from '$lib/llmClient';
+import { DEFAULT_MODEL_ID, blockedModelMessage, isBlockedModelId, isKnownModelId } from '$lib/modelCatalog';
 
 export const GET: RequestHandler = async () => {
 	return json(await readAppSettings());
@@ -18,7 +19,7 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 		? body.llmModel
 		: typeof body?.mlxModel === 'string'
 			? body.mlxModel
-			: DEFAULT_OPENAI_MODEL_ID;
+			: DEFAULT_MODEL_ID;
 	const aiTooling = typeof body?.aiTooling === 'string' ? body.aiTooling : 'generic';
 	const useJsonSchema = Boolean(body?.useJsonSchema);
 	const localModelTier = typeof body?.localModelTier === 'string' ? body.localModelTier : undefined;
@@ -33,15 +34,15 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 };
 
 async function assertModelAllowedByServer(baseUrlValue: string, model: string, fetch: typeof globalThis.fetch): Promise<void> {
-	const normalizedModel = model.trim() || DEFAULT_OPENAI_MODEL_ID;
+	const normalizedModel = model.trim() || DEFAULT_MODEL_ID;
 	if (isBlockedModelId(normalizedModel)) {
-		throw new Error(`Model "${normalizedModel}" is not allowed because some self-hosted servers treat it as a Hugging Face model id to download`);
+		throw new Error(blockedModelMessage(normalizedModel));
 	}
-	if ((OPENAI_MODEL_IDS as readonly string[]).includes(normalizedModel)) {
+	if (isKnownModelId(normalizedModel)) {
 		return;
 	}
 	const baseUrl = normalizeBaseUrl(baseUrlValue);
-	const response = await fetch(`${baseUrl}/v1/models`);
+	const response = await fetch(`${baseUrl}/v1/models`, { headers: llmRequestHeaders(await llmApiKeyFor(baseUrl)) });
 	if (!response.ok) {
 		throw new Error(`Could not validate model list: LLM server returned ${response.status}`);
 	}

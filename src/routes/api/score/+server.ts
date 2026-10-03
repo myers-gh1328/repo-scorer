@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types';
 import { json, error } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
-import { readAppSettings } from '$lib/server/appSettings';
+import { readAppSettings, readLlmApiKey } from '$lib/server/appSettings';
 import { readRepoConfig } from '$lib/server/repoConfig';
 import { scoreRepo } from '$lib/scorer';
 import { scoreResponseFormatForRubric } from '$lib/responseSchemas';
@@ -54,6 +54,7 @@ export const POST: RequestHandler = async ({ request }) => {
       baseUrl: llmBaseUrl,
       model: llmModel,
       maxTokens: 4096,
+      apiKey: await readLlmApiKey(),
       responseFormat: useJsonSchema ? scoreResponseFormatForRubric(rubricDefinition) : undefined
     }, undefined, rubricDefinition, undefined, mode, {
       scannerEvidenceVersion: '2026-10-01.2',

@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types';
 import { error, json } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
-import { readAppSettings } from '$lib/server/appSettings';
+import { readAppSettings, readLlmApiKey } from '$lib/server/appSettings';
 import { isGitRepo, readRepoConfig } from '$lib/server/repoConfig';
 import { parseEvaluationMode, readEvaluationRubric } from '$lib/evaluationModes';
 import {
@@ -81,6 +81,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			baseUrl: llmBaseUrl,
 			model: llmModel,
 			maxTokens: 4096,
+			apiKey: await readLlmApiKey(),
 			responseFormat: useJsonSchema ? improvementPlanResponseFormat : undefined
 		}, undefined, aiTooling, mode);
 		return json(plan);

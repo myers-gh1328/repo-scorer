@@ -208,6 +208,12 @@ export interface LLMConfig {
   model?: string;
   maxTokens?: number;
   responseFormat?: LLMResponseFormat;
+  /** Sent as a Bearer token when set (hosted OpenAI-compatible endpoints). */
+  apiKey?: string;
+  /** Per-attempt request timeout. Defaults to DEFAULT_LLM_TIMEOUT_MS. */
+  timeoutMs?: number;
+  /** Retries for connection errors and 429/5xx responses. Defaults to DEFAULT_LLM_MAX_RETRIES. */
+  maxRetries?: number;
 }
 
 export interface LLMResponseFormat {

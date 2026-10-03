@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { DEFAULT_OPENAI_MODEL_ID, normalizeModelId } from '$lib/modelCatalog';
+import { DEFAULT_MODEL_ID, normalizeModelId } from '$lib/modelCatalog';
 import { DEFAULT_LOCAL_MODEL_TIER, LOCAL_MODEL_TIERS, type LocalModelTier } from '$lib/types';
 
 const DEFAULT_ENV_PATH = '.env';
@@ -23,7 +23,7 @@ export async function readAppSettings(): Promise<AppSettings> {
 	const explicitModel = await readEnvValue('LLM_MODEL');
 	const legacyModel = explicitModel ? null : await readEnvValue('MLX_MODEL');
 	const llmBaseUrl = explicitBaseUrl ?? legacyBaseUrl ?? DEFAULT_LLM_BASE_URL;
-	const llmModel = normalizeModel(explicitModel ?? legacyModel ?? DEFAULT_OPENAI_MODEL_ID);
+	const llmModel = normalizeModel(explicitModel ?? legacyModel ?? DEFAULT_MODEL_ID);
 
 	if (!explicitBaseUrl && legacyBaseUrl) {
 		await writeEnvValue('LLM_BASE_URL', llmBaseUrl);
@@ -41,6 +41,22 @@ export async function readAppSettings(): Promise<AppSettings> {
 		useJsonSchema: normalizeBoolean(await readEnvValue('USE_JSON_SCHEMA') ?? 'false'),
 		localModelTier: normalizeLocalModelTier(await readEnvValue('LOCAL_MODEL_TIER') ?? DEFAULT_LOCAL_MODEL_TIER)
 	};
+}
+
+// Kept out of AppSettings so GET /api/settings never sends it to the browser.
+export async function readLlmApiKey(): Promise<string | undefined> {
+	const value = (await readEnvValue('LLM_API_KEY'))?.trim();
+	return value || undefined;
+}
+
+// Only for requests to the saved server, so a user-supplied URL can never receive the key.
+export async function llmApiKeyFor(baseUrl: string): Promise<string | undefined> {
+	const configured = await readEnvValue('LLM_BASE_URL') ?? await readEnvValue('MLX_BASE_URL') ?? DEFAULT_LLM_BASE_URL;
+	try {
+		return normalizeBaseUrl(configured) === normalizeBaseUrl(baseUrl) ? await readLlmApiKey() : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 export async function writeAppSettings(settings: AppSettingsInput): Promise<AppSettings> {
@@ -88,7 +104,7 @@ export function normalizeLocalModelTier(value: string): LocalModelTier {
 }
 
 export function normalizeModel(value: string): string {
-	return normalizeModelId(value.trim() || DEFAULT_OPENAI_MODEL_ID);
+	return normalizeModelId(value.trim() || DEFAULT_MODEL_ID);
 }
 
 function normalizeBoolean(value: string): boolean {
