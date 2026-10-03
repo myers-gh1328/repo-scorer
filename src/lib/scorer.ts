@@ -9,10 +9,13 @@ import { DEFAULT_EVALUATION_MODE } from './types';
 import { storage } from './server/storage';
 import type { RuntimeSupportMatrix } from './reference/runtimeSupport';
 import type { GuidanceTool } from './scanner';
-import type { CategoryRationale, CategoryRationales, CategoryScores, EvaluationMode, LLMConfig, LLMResponseFormat, ScoreResult, StructuredGap } from './types';
+import type { CategoryRationale, CategoryRationales, CategoryScores, EvaluationMode, LLMConfig, LLMResponseFormat, PromptContext, ScoreResult, StructuredGap } from './types';
 import type { RubricCategoryDefinition, RubricDefinition } from './rubricSchema';
+import { availableGuidanceLevels, type GuidanceLevel, type RubricGuidance } from './rubricGuidance';
+import { chooseGuidanceLevel, estimateTokens, inputTokenBudget, isContextLengthError, nextGuidanceLevel, tokensToChars } from './promptBudget';
 
 const MAX_CATEGORY_EVIDENCE_CHARS = 48_000;
+const MIN_CATEGORY_EVIDENCE_CHARS = 4_000;
 
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -100,7 +103,8 @@ function extractJsonObject(raw: string): string | null {
 export interface ScoreRepoOptions {
   name: string;
   repoPath: string;
-  rubric: string;
+  /** Rubric text resolved against rubricDefinition (see readEvaluationRubric). */
+  guidance: RubricGuidance;
   rubricDefinition: RubricDefinition;
   llmConfig: LLMConfig;
   evaluationMode?: EvaluationMode;
@@ -112,7 +116,7 @@ export interface ScoreRepoOptions {
 export async function scoreRepo({
   name,
   repoPath,
-  rubric,
+  guidance,
   rubricDefinition,
   llmConfig,
   evaluationMode = DEFAULT_EVALUATION_MODE,
@@ -129,7 +133,7 @@ export async function scoreRepo({
     totalSteps
   });
   const scan = await scanRepo(repoPath, runtimeSupport, { duplication: evaluationMode === 'maintainability' });
-  let result = await scoreRepoByCategory(rubricDefinition, rubric, scan, llmConfig, name, evaluationMode);
+  let result = await scoreRepoByCategory(rubricDefinition, guidance, scan, llmConfig, name, evaluationMode);
   updateScoringProgress(name, {
     evaluationMode,
     phase: 'caps',
@@ -174,7 +178,7 @@ export async function scoreRepo({
 
 async function scoreRepoByCategory(
   rubricDefinition: RubricDefinition,
-  rubric: string,
+  guidance: RubricGuidance,
   scan: Awaited<ReturnType<typeof scanRepo>>,
   llmConfig: LLMConfig,
   repoName: string,
@@ -182,6 +186,13 @@ async function scoreRepoByCategory(
 ): Promise<ScoreResult> {
   const categories = {} as CategoryScores;
   const categoryRationales: CategoryRationales = {};
+  const promptContext: PromptContext = {
+    ...(llmConfig.contextTokens ? { contextTokens: llmConfig.contextTokens } : {}),
+    contextSource: llmConfig.contextSource ?? (llmConfig.contextTokens ? 'setting' : 'unknown'),
+    levels: {},
+    evidenceTrimmed: []
+  };
+  const budget = inputTokenBudget(llmConfig);
 
   for (const [index, category] of rubricDefinition.categories.entries()) {
     updateScoringProgress(repoName, {
@@ -191,19 +202,44 @@ async function scoreRepoByCategory(
       currentStep: index + 1,
       totalSteps: rubricDefinition.categories.length + 4
     });
-    const bundle = buildCategoryEvidenceBundle(scan.files, category, scan);
-    const prompt = buildCategoryPrompt(rubric, rubricDefinition, category, scan, bundle, evaluationMode);
+    const levels = availableGuidanceLevels(guidance, [category.key]);
+    let bundle = buildCategoryEvidenceBundle(scan.files, category, scan, MAX_CATEGORY_EVIDENCE_CHARS);
+    const build = (level: GuidanceLevel) => buildCategoryPrompt(guidance, level, rubricDefinition, category, scan, bundle, evaluationMode);
+    const choice = chooseGuidanceLevel(levels, build, budget);
+    let level = choice.level;
+    let prompt = choice.prompt;
+    if (!choice.fits && budget !== undefined) {
+      // Even the smallest rubric level is too big: trim evidence, the only thing left to shrink.
+      const overshootChars = tokensToChars(estimateTokens(prompt) - budget);
+      bundle = buildCategoryEvidenceBundle(scan.files, category, scan, Math.max(MIN_CATEGORY_EVIDENCE_CHARS, bundle.totalIncludedChars - overshootChars));
+      prompt = build(level);
+      promptContext.evidenceTrimmed.push(category.key);
+    }
     const config = {
       ...llmConfig,
       responseFormat: llmConfig.responseFormat ? categoryResponseFormat(category) : undefined
     };
     let raw: string;
-    try {
-      raw = await callLLM(config, prompt);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(`LLM_UNREACHABLE: ${msg}`);
+    for (;;) {
+      try {
+        raw = await callLLM(config, prompt);
+        break;
+      } catch (e) {
+        // The server rejected the prompt as too long: step down a level, then trim evidence.
+        const lower = isContextLengthError(e) ? nextGuidanceLevel(levels, level) : undefined;
+        if (lower) {
+          level = lower;
+        } else if (isContextLengthError(e) && bundle.totalIncludedChars > MIN_CATEGORY_EVIDENCE_CHARS) {
+          bundle = buildCategoryEvidenceBundle(scan.files, category, scan, Math.max(MIN_CATEGORY_EVIDENCE_CHARS, Math.floor(bundle.totalIncludedChars / 2)));
+          if (!promptContext.evidenceTrimmed.includes(category.key)) promptContext.evidenceTrimmed.push(category.key);
+        } else {
+          const msg = e instanceof Error ? e.message : String(e);
+          throw new Error(`LLM_UNREACHABLE: ${msg}`);
+        }
+        prompt = build(level);
+      }
     }
+    promptContext.levels[category.key] = level;
 
     let evaluation = tryParseCategoryEvaluation(raw, category);
     if (!evaluation) {
@@ -231,6 +267,7 @@ async function scoreRepoByCategory(
     evaluationMode,
     resultVersion: 2,
     rubricVersion: rubricDefinition.version,
+    promptContext,
     scoredAt: '',
     modelScore: score,
     cappedScore: score,
@@ -259,14 +296,19 @@ async function scoreRepoByCategory(
   };
 }
 
-function buildCategoryEvidenceBundle(files: { relativePath: string; content: string }[], category: RubricCategoryDefinition, scan?: Awaited<ReturnType<typeof scanRepo>>) {
+function buildCategoryEvidenceBundle(
+  files: { relativePath: string; content: string }[],
+  category: RubricCategoryDefinition,
+  scan: Awaited<ReturnType<typeof scanRepo>>,
+  maxChars: number
+) {
   const sorted = [...files].sort((a, b) => relevanceScore(b, category) - relevanceScore(a, category));
   const includedFiles: { relativePath: string; content: string }[] = [];
   const omittedFiles: string[] = [];
   let totalIncludedChars = 0;
 
   for (const file of sorted) {
-    const remaining = MAX_CATEGORY_EVIDENCE_CHARS - totalIncludedChars;
+    const remaining = maxChars - totalIncludedChars;
     if (remaining <= 0) {
       omittedFiles.push(file.relativePath);
       continue;
@@ -284,7 +326,7 @@ function buildCategoryEvidenceBundle(files: { relativePath: string; content: str
   return {
     includedFiles,
     omittedFiles: uniqueStrings(omittedFiles),
-    evidenceInventory: scan ? buildBoundedEvidenceInventory(scan.evidence, category) : {},
+    evidenceInventory: buildBoundedEvidenceInventory(scan.evidence, category),
     totalIncludedChars,
     truncated: omittedFiles.length > 0
   };

@@ -1,7 +1,7 @@
 # Agentic Repository Maturity Guide and Scorecard - 2026
 
-**Version:** 2.0  
-**Date:** September 24, 2026 (v1.0: May 18, 2026)  
+**Version:** 2.1  
+**Date:** October 3, 2026 (v2.0: September 24, 2026; v1.0: May 18, 2026)  
 **Audience:** Engineering managers, platform teams, security teams, staff engineers, repo maintainers, and developers using AI coding agents
 
 ---
@@ -980,6 +980,8 @@ These weights are the **Cloud** profile and the base scale that category judgmen
 | 4 | Enforced, reviewed, and aligned with CI or policy |
 | 5 | Managed at org scale with observability, ownership, and measured effectiveness |
 
+Use these levels as anchors for every category and scale them to the category's weight: a category scores roughly `weight × level ÷ 5` (for example, level 3 in a weight-10 category is about 6). Category-specific instructions take precedence, such as neutral credit for tool manifests when a repo has no external-system need, or not treating missing specialized agents as a major gap for simple repos.
+
 ### 6.1 Score profiles: Cloud and Local
 
 Every scored repo gets a Cloud score and a score for each Local tier. All profiles reuse the same category judgments: each category contributes the same fraction of its weight, re-weighted per profile. Users choose which Local tier to display. Pick the tier by the model's **total** parameters, since that determines whether it fits in memory; models larger than about 35B total parameters, including large open-weight models, use the Cloud score.
@@ -1175,6 +1177,102 @@ Risk signals:
 - Hooks fail open silently.
 - Dangerous commands are allowed without approval.
 - Full access is the default for normal work.
+
+#### Validation and reproducibility
+
+Pass signals:
+
+- Persistent guidance lists exact build, lint, typecheck, and test commands.
+- A narrow test command (single file or package) exists alongside the full suite.
+- Documented commands match real scripts, task runners, or CI jobs.
+- Preconditions and environment setup are documented.
+- Lockfiles, a devcontainer, Docker, a Makefile or justfile, or cloud-agent setup (such as `copilot-setup-steps.yml` or a SessionStart hook) make the environment reproducible.
+
+Risk signals:
+
+- No validation commands, or only vague instructions such as "run the tests".
+- Documented commands that do not exist in scripts or CI.
+- Only a slow full-suite command with no narrow option.
+- Complex setup with no reproducibility support.
+- Missing lockfiles for package managers that support them.
+
+#### CI and PR automation
+
+Pass signals:
+
+- CI runs on push or pull request, not only manually.
+- CI jobs run the same commands the guidance documents.
+- CI checks agent assets (rules, skills, hook and MCP configs) where they exist.
+
+Risk signals:
+
+- No CI workflow for an active repo.
+- Manual-only CI (`workflow_dispatch` only).
+- CI and documented local commands disagree.
+- AI-assisted changes bypass the normal review and CI path.
+
+#### Domain and decision context
+
+Pass signals:
+
+- ADRs or decision records explain settled choices.
+- A glossary or architecture doc defines domain terms and boundaries.
+- Produced and consumed API contracts (OpenAPI, GraphQL, protobuf) are in the repo where the repo depends on other services.
+- Canonical examples, fixtures, or test templates exist and are referenced from guidance, rules, or skills.
+- Generated code directories are identified as do-not-edit.
+
+Risk signals:
+
+- Service dependencies with no contracts in the repo.
+- Examples or ADRs exist but nothing points agents to them.
+- Domain terms used inconsistently across docs and code.
+
+Do not expect contracts or ADRs from small single-purpose repos where they would add no information.
+
+#### Governance and observability
+
+Pass signals:
+
+- Agent context files have an owner (for example in CODEOWNERS).
+- Changes to agent assets require review.
+- A review cadence for guidance and high-use rules is documented.
+- Managed settings or policy files exist where security or compliance requires them.
+- An audit or logging path exists for critical repos.
+
+Risk signals:
+
+- No owner for agent context files.
+- Stale guidance with no review process.
+- Critical repo with no audit path for agent actions.
+
+Scale expectations to the repo class (Section 5). A personal or low-risk repo is not penalized heavily for missing org-scale governance.
+
+#### Versioning and dependency provenance
+
+Pass signals:
+
+- Agent assets (guidance, rules, skills, agents, hooks, MCP configs) are committed to the repo.
+- Executable dependencies used by MCP servers, hooks, and skills are pinned to exact versions or governed through an approved registry.
+- Hooks and skills reference scripts that live in the repo.
+
+Risk signals:
+
+- Agent behavior depends on personal or local settings not in the repo.
+- Floating versions (`latest`, unpinned `npx`/`uvx` packages) in executed paths.
+- Hooks that call external, unversioned scripts.
+
+#### Onboarding and discoverability
+
+Pass signals:
+
+- README or equivalent tells humans where agent guidance, rules, skills, and workflows live.
+- Contribution docs explain how to change agent assets.
+- Directory layout makes agent assets easy to find.
+
+Risk signals:
+
+- Agent assets exist but nothing points to them.
+- README contradicts the guidance files.
 
 ---
 

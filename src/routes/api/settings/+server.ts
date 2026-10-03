@@ -23,10 +23,13 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 	const aiTooling = typeof body?.aiTooling === 'string' ? body.aiTooling : 'generic';
 	const useJsonSchema = Boolean(body?.useJsonSchema);
 	const localModelTier = typeof body?.localModelTier === 'string' ? body.localModelTier : undefined;
+	const llmContextTokens = typeof body?.llmContextTokens === 'number' || typeof body?.llmContextTokens === 'string'
+		? body.llmContextTokens
+		: null;
 
 	try {
 		await assertModelAllowedByServer(llmBaseUrl, llmModel, fetch);
-		return json(await writeAppSettings({ llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier }));
+		return json(await writeAppSettings({ llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier, llmContextTokens }));
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		throw error(400, msg);

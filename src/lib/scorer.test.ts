@@ -11,6 +11,7 @@ import { callLLM } from './llmClient';
 import { detectDuplication } from './duplication';
 import { loadRubricDefinition, type RubricDefinition } from './rubricSchema';
 import { resetStorageForTests, storage } from './server/storage';
+import { plainRubricGuidance, resolveRubricGuidance } from './rubricGuidance';
 
 const tinyRubric: RubricDefinition = {
   version: 'test',
@@ -42,7 +43,7 @@ function options(overrides: Partial<ScoreRepoOptions> = {}): ScoreRepoOptions {
   return {
     name: 'myrepo',
     repoPath: repoDir,
-    rubric: 'rubric',
+    guidance: plainRubricGuidance('TINY RUBRIC TEXT'),
     rubricDefinition: tinyRubric,
     llmConfig,
     ...overrides
@@ -132,7 +133,7 @@ describe('scoreRepo', () => {
       return categoryResponse(definition.categoryMax[key] ?? 0);
     });
 
-    const result = await scoreRepo(options({ rubricDefinition: definition }));
+    const result = await scoreRepo(options({ rubricDefinition: definition, guidance: resolveRubricGuidance(await readFile('rubric.md', 'utf-8'), definition) }));
 
     expect(result.rawCategories?.skills).toBe(definition.categoryMax.skills);
     expect(result.categories.skills).toBe(4);
@@ -249,13 +250,89 @@ describe('scoreRepo', () => {
     const definition = loadRubricDefinition(await readFile('rubric.schema.json', 'utf-8'));
     vi.mocked(callLLM).mockResolvedValue(JSON.stringify({ score: 999, evidence: ['AGENTS.md'], gaps: [] }));
 
-    const result = await scoreRepo(options({ rubricDefinition: definition, guidanceTool: 'generic' }));
+    const result = await scoreRepo(options({
+      rubricDefinition: definition,
+      guidance: resolveRubricGuidance(await readFile('rubric.md', 'utf-8'), definition),
+      guidanceTool: 'generic'
+    }));
 
     expect(result.resultVersion).toBe(3);
-    expect(result.rubricVersion).toBe('2.0');
+    expect(result.rubricVersion).toBe('2.1');
     expect(Object.keys(result.profileScores ?? {})).toEqual(['cloud', 'local-medium', 'local-small', 'local-tiny']);
     expect(result.profileScores?.cloud.score).toBe(result.score);
     expect(result.profileScores?.['local-medium'].guidanceBudget).toMatchObject({ estimatedTokens: 2000, withinBudget: true });
     expect(result.profileScores?.['local-tiny'].guidanceBudget).toMatchObject({ estimatedTokens: 2000, factor: 0.5 });
+  });
+
+  describe('rubric guidance and context budget', () => {
+    async function realOptions(llm: Partial<ScoreRepoOptions['llmConfig']> = {}) {
+      const definition = loadRubricDefinition(await readFile('rubric.schema.json', 'utf-8'));
+      const guidance = resolveRubricGuidance(await readFile('rubric.md', 'utf-8'), definition);
+      return options({ rubricDefinition: definition, guidance, llmConfig: { ...llmConfig, ...llm } });
+    }
+
+    it('sends the full rubric to every category when the context window is unknown', async () => {
+      const result = await scoreRepo(await realOptions());
+
+      for (const [, prompt] of vi.mocked(callLLM).mock.calls) {
+        expect(prompt).toContain('The complete rubric follows');
+      }
+      expect(result.promptContext).toMatchObject({ contextSource: 'unknown', evidenceTrimmed: [] });
+      expect(new Set(Object.values(result.promptContext?.levels ?? {}))).toEqual(new Set(['full']));
+    });
+
+    it('sends the full rubric when a large window fits it', async () => {
+      const result = await scoreRepo(await realOptions({ contextTokens: 128_000, contextSource: 'catalog', maxTokens: 4096 }));
+
+      expect(new Set(Object.values(result.promptContext?.levels ?? {}))).toEqual(new Set(['full']));
+      expect(result.promptContext).toMatchObject({ contextTokens: 128_000, contextSource: 'catalog' });
+    });
+
+    it('steps down to category excerpts only when the full rubric does not fit', async () => {
+      const result = await scoreRepo(await realOptions({ contextTokens: 16_000, contextSource: 'setting', maxTokens: 4096 }));
+
+      expect(new Set(Object.values(result.promptContext?.levels ?? {}))).toEqual(new Set(['category']));
+      const prompt = vi.mocked(callLLM).mock.calls[0][1];
+      expect(prompt).not.toContain('The complete rubric follows');
+      expect(prompt).toContain('#### Persistent guidance');
+    });
+
+    it('steps down to compact excerpts for very small windows', async () => {
+      const result = await scoreRepo(await realOptions({ contextTokens: 6_000, contextSource: 'setting', maxTokens: 2048 }));
+
+      // Each category gets the richest level that fits: small excerpts still fit whole, large ones step down.
+      expect(result.promptContext?.levels.persistent_guidance).toBe('compact');
+      expect(result.promptContext?.levels.onboarding_discoverability).toBe('category');
+      expect(Object.values(result.promptContext?.levels ?? {})).not.toContain('full');
+    });
+
+    it('trims evidence only after the smallest rubric level still does not fit', async () => {
+      await writeFile(join(repoDir, 'AGENTS.md'), `# Agent guide\n${'Use npm test. '.repeat(4_000)}`);
+
+      const result = await scoreRepo(await realOptions({ contextTokens: 6_000, contextSource: 'setting', maxTokens: 2048 }));
+
+      expect(result.promptContext?.evidenceTrimmed).toContain('persistent_guidance');
+      expect(result.promptContext?.levels.persistent_guidance).toBe('minimal');
+    });
+
+    it('steps down a level when the server rejects a prompt as too long', async () => {
+      vi.mocked(callLLM)
+        .mockRejectedValueOnce(new Error("LLM returned 400: This model's maximum context length is 8192 tokens"))
+        .mockResolvedValue(categoryResponse(3));
+
+      const result = await scoreRepo(await realOptions());
+
+      expect(result.promptContext?.levels.persistent_guidance).toBe('category');
+      expect(result.promptContext?.levels.scoped_rules).toBe('full');
+      expect(vi.mocked(callLLM).mock.calls[0][1]).toContain('The complete rubric follows');
+      expect(vi.mocked(callLLM).mock.calls[1][1]).not.toContain('The complete rubric follows');
+    });
+
+    it('still reports other LLM errors as unreachable without stepping down', async () => {
+      vi.mocked(callLLM).mockRejectedValue(new Error('LLM returned 400: invalid model'));
+
+      await expect(scoreRepo(await realOptions())).rejects.toThrow('LLM_UNREACHABLE: LLM returned 400: invalid model');
+      expect(vi.mocked(callLLM)).toHaveBeenCalledTimes(1);
+    });
   });
 });

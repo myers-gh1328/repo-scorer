@@ -20,7 +20,7 @@ Evaluation modes (`src/lib/evaluationModes.ts`):
 `scoreRepo` in `src/lib/scorer.ts`:
 
 1. `scanner.ts` (+ `duplication.ts` in maintainability mode) collects files and an evidence inventory.
-2. One LLM call per rubric category (`promptBuilder.ts`, `llmClient.ts`, `responseSchemas.ts`).
+2. One LLM call per rubric category (`promptBuilder.ts`, `llmClient.ts`, `responseSchemas.ts`). Each prompt carries the full rubric markdown unless the scoring model's context window cannot fit it; then it steps down to per-category excerpts (`rubricGuidance.ts`, `promptBudget.ts`). Context-length errors from the server also step down a level.
 3. `scoreCaps.ts` applies deterministic evidence caps.
 4. `consistencyChecks.ts` enforces band constraints.
 5. `profileScores.ts` computes Cloud/Local profile scores.
@@ -50,7 +50,7 @@ python -m mlx_lm.server --model <your-model-path> --port 8080
 
 ## Configuration and State
 
-- `.env` — `LLM_BASE_URL`, `LLM_MODEL`, `AI_TOOLING`, `USE_JSON_SCHEMA`, `LOCAL_MODEL_TIER`. Written by the Settings page; see `.env.example`. Legacy `MLX_BASE_URL`/`MLX_MODEL` are migrated on read. Optional `LLM_API_KEY` is sent as a Bearer token; it is never returned by `/api/settings`.
+- `.env` — `LLM_BASE_URL`, `LLM_MODEL`, `AI_TOOLING`, `USE_JSON_SCHEMA`, `LOCAL_MODEL_TIER`. Written by the Settings page; see `.env.example`. Legacy `MLX_BASE_URL`/`MLX_MODEL` are migrated on read. Optional `LLM_API_KEY` is sent as a Bearer token; it is never returned by `/api/settings`. Optional `LLM_CONTEXT_TOKENS` sets the scoring model's context window; when blank it comes from `/v1/models`, then a known-model floor, else it is treated as unknown (full rubric sent).
 - `repo-scorer.sqlite` — repos, scores, history, improvement plans. Gitignored.
 - Optional env overrides: `REPO_SCORER_DB_PATH`, `REPO_SCORER_DATA_DIR`, `REPO_SCORER_ENV_PATH`, `REPO_SEARCH_ROOTS` (comma-separated roots for repo discovery).
 - Model ids are normalized in `src/lib/modelCatalog.ts` (`KNOWN_MODEL_IDS` skip server validation); the id `local` is blocked.
@@ -58,6 +58,8 @@ python -m mlx_lm.server --model <your-model-path> --port 8080
 - Legacy JSON files (`repos.config.json`, `scores.json`, `score-history.json`, `improvement-plans.json`) are imported into SQLite once on first start, then ignored.
 
 ## Rubric Changes
+
+Schemas reference rubric markdown headings through `guidance` and per-category `guidanceSections`. Every referenced heading must match exactly one heading outside code fences, or rubric loading fails; renaming a heading means updating the schema.
 
 Rubric, schema, and scorer changes go through the gated workflow in `docs/rubric-updates/README.md`, using the skills in `.agent/skills/` (`research-rubric-freshness`, `evaluate-candidate-rubric`, `implement-rubric-update`). Do not edit active rubric files without an approved implementation plan.
 

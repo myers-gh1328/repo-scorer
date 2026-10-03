@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { readRubricDefinition, type RubricDefinition } from './rubricSchema';
+import { resolveRubricGuidance, type RubricGuidance } from './rubricGuidance';
 import { DEFAULT_EVALUATION_MODE, type EvaluationMode } from './types';
 
 export interface EvaluationModeDefinition {
@@ -43,11 +44,14 @@ export function listEvaluationModes(): EvaluationModeDefinition[] {
 	return Object.values(EVALUATION_MODES);
 }
 
-export async function readEvaluationRubric(mode: EvaluationMode): Promise<{ markdown: string; definition: RubricDefinition }> {
+export async function readEvaluationRubric(
+	mode: EvaluationMode
+): Promise<{ markdown: string; definition: RubricDefinition; guidance: RubricGuidance }> {
 	const config = evaluationModeDefinition(mode);
 	const [markdown, definition] = await Promise.all([
 		readFile(config.rubricPath, 'utf-8'),
 		readRubricDefinition(config.schemaPath)
 	]);
-	return { markdown, definition };
+	// Throws when a schema guidance heading is missing from the markdown, so a prose edit cannot silently drop guidance.
+	return { markdown, definition, guidance: resolveRubricGuidance(markdown, definition) };
 }

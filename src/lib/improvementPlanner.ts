@@ -5,6 +5,8 @@ import { scanRepo } from './scanner';
 import { callLLM } from './llmClient';
 import { CATEGORY_LABELS, CATEGORY_MAX, DEFAULT_EVALUATION_MODE } from './types';
 import { storage } from './server/storage';
+import { availableGuidanceLevels, guidanceText, type GuidanceLevel, type RubricGuidance } from './rubricGuidance';
+import { chooseGuidanceLevel, inputTokenBudget, isContextLengthError, nextGuidanceLevel } from './promptBudget';
 import type { AiTooling } from './server/appSettings';
 import type {
 	CategoryScores,
@@ -35,7 +37,7 @@ export function assertImprovementPlanExportAllowed(repo: RepoConfig): void {
 export async function generateImprovementPlan(
 	repoName: string,
 	repoPath: string,
-	rubric: string,
+	guidance: RubricGuidance,
 	score: ScoreResult,
 	llmConfig: LLMConfig,
 	aiTooling: AiTooling = 'generic',
@@ -44,7 +46,29 @@ export async function generateImprovementPlan(
 	const scan = await scanRepo(repoPath);
 	const inventory = await collectRepoInventory(repoPath);
 	const validationCandidates = await collectValidationCommandCandidates(repoPath, inventory);
-	const raw = await callPlanModel(llmConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, inventory, validationCandidates, aiTooling, evaluationMode));
+	const categoryKeys = Object.keys(score.categories ?? {});
+	const levels = availableGuidanceLevels(guidance, categoryKeys);
+	const build = (level: GuidanceLevel) => buildImprovementPrompt(
+		repoName, guidanceText(guidance, level, categoryKeys), score, scan.files, inventory, validationCandidates, aiTooling, evaluationMode
+	);
+	const choice = chooseGuidanceLevel(levels, build, inputTokenBudget(llmConfig));
+	let level = choice.level;
+	let raw: string;
+	let prompt = choice.prompt;
+	for (;;) {
+		try {
+			raw = await callLLM(llmConfig, prompt);
+			break;
+		} catch (e) {
+			const lower = isContextLengthError(e) ? nextGuidanceLevel(levels, level) : undefined;
+			if (!lower) {
+				const msg = e instanceof Error ? e.message : String(e);
+				throw new Error(`LLM_UNREACHABLE: ${msg}`);
+			}
+			level = lower;
+			prompt = build(level);
+		}
+	}
 	let repairCount = 0;
 	let plan = prepareGeneratedPlan(tryParseImprovementPlan(raw, repoName, score), aiTooling);
 	let validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Response was not valid JSON matching the required plan schema.'];
@@ -74,6 +98,12 @@ export async function generateImprovementPlan(
 	plan.evaluationMode = evaluationMode;
 	plan.sourceRepoPath = repoPath;
 	plan.repairCount = repairCount;
+	plan.promptContext = {
+		...(llmConfig.contextTokens ? { contextTokens: llmConfig.contextTokens } : {}),
+		contextSource: llmConfig.contextSource ?? (llmConfig.contextTokens ? 'setting' : 'unknown'),
+		levels: { plan: level },
+		evidenceTrimmed: []
+	};
 	plan.qualityWarnings = [...qualityWarnings];
 	plan.markdown = renderImprovementMarkdown(plan);
 
@@ -548,7 +578,7 @@ This repository has a generated agent-facing improvement plan at \`${exportPath}
 
 function buildImprovementPrompt(
 	repoName: string,
-	rubric: string,
+	rubricText: string,
 	score: ScoreResult,
 	files: { relativePath: string; content: string }[],
 	inventory: RepoInventory,
@@ -568,10 +598,7 @@ ${repoName}
 ## CURRENT SCORE RESULT
 ${JSON.stringify(score, null, 2)}
 
-## RUBRIC
-${rubric}
-
-## REPOSITORY EVIDENCE
+${rubricText ? `## RUBRIC\n${rubricText}\n\n` : ''}## REPOSITORY EVIDENCE
 ${evidence}
 
 ## REPOSITORY PATH INVENTORY

@@ -13,9 +13,16 @@ export interface AppSettings {
 	aiTooling: AiTooling;
 	useJsonSchema: boolean;
 	localModelTier: LocalModelTier;
+	/** Scoring model's context window in tokens; null means auto-detect. */
+	llmContextTokens: number | null;
 }
 
-export type AppSettingsInput = Omit<AppSettings, 'localModelTier'> & { localModelTier?: string };
+export type AppSettingsInput = Omit<AppSettings, 'localModelTier' | 'llmContextTokens'> & {
+	localModelTier?: string;
+	llmContextTokens?: number | string | null;
+};
+
+export const MIN_CONTEXT_TOKENS = 1024;
 
 export async function readAppSettings(): Promise<AppSettings> {
 	const explicitBaseUrl = await readEnvValue('LLM_BASE_URL');
@@ -39,7 +46,8 @@ export async function readAppSettings(): Promise<AppSettings> {
 		llmModel,
 		aiTooling: normalizeAiTooling(await readEnvValue('AI_TOOLING') ?? 'generic'),
 		useJsonSchema: normalizeBoolean(await readEnvValue('USE_JSON_SCHEMA') ?? 'false'),
-		localModelTier: normalizeLocalModelTier(await readEnvValue('LOCAL_MODEL_TIER') ?? DEFAULT_LOCAL_MODEL_TIER)
+		localModelTier: normalizeLocalModelTier(await readEnvValue('LOCAL_MODEL_TIER') ?? DEFAULT_LOCAL_MODEL_TIER),
+		llmContextTokens: parseContextTokens(await readEnvValue('LLM_CONTEXT_TOKENS'))
 	};
 }
 
@@ -65,17 +73,37 @@ export async function writeAppSettings(settings: AppSettingsInput): Promise<AppS
 	const aiTooling = normalizeAiTooling(settings.aiTooling);
 	const useJsonSchema = Boolean(settings.useJsonSchema);
 	const localModelTier = normalizeLocalModelTier(settings.localModelTier ?? DEFAULT_LOCAL_MODEL_TIER);
+	const llmContextTokens = normalizeContextTokens(settings.llmContextTokens);
 	await writeEnvValue('LLM_BASE_URL', llmBaseUrl);
 	await writeEnvValue('LLM_MODEL', llmModel);
 	await writeEnvValue('AI_TOOLING', aiTooling);
 	await writeEnvValue('USE_JSON_SCHEMA', String(useJsonSchema));
 	await writeEnvValue('LOCAL_MODEL_TIER', localModelTier);
+	await writeEnvValue('LLM_CONTEXT_TOKENS', llmContextTokens === null ? '' : String(llmContextTokens));
 	process.env.LLM_BASE_URL = llmBaseUrl;
 	process.env.LLM_MODEL = llmModel;
 	process.env.AI_TOOLING = aiTooling;
 	process.env.USE_JSON_SCHEMA = String(useJsonSchema);
 	process.env.LOCAL_MODEL_TIER = localModelTier;
-	return { llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier };
+	return { llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier, llmContextTokens };
+}
+
+/** Blank means auto-detect. Anything else must be a whole number of tokens of at least MIN_CONTEXT_TOKENS. */
+export function normalizeContextTokens(value: number | string | null | undefined): number | null {
+	if (value === null || value === undefined || String(value).trim() === '') return null;
+	const tokens = Number(String(value).trim().replace(/[_,]/g, ''));
+	if (!Number.isInteger(tokens) || tokens < MIN_CONTEXT_TOKENS) {
+		throw new Error(`Context window must be blank (auto-detect) or a whole number of at least ${MIN_CONTEXT_TOKENS} tokens`);
+	}
+	return tokens;
+}
+
+function parseContextTokens(value: string | null): number | null {
+	try {
+		return normalizeContextTokens(value);
+	} catch {
+		return null;
+	}
 }
 
 export function normalizeBaseUrl(value: string): string {

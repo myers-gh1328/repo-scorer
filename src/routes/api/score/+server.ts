@@ -2,6 +2,7 @@ import type { RequestHandler } from './$types';
 import { json, error } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
 import { readAppSettings, readLlmApiKey } from '$lib/server/appSettings';
+import { resolveContextWindow } from '$lib/server/modelContext';
 import { readRepoConfig } from '$lib/server/repoConfig';
 import { scoreRepo } from '$lib/scorer';
 import { scoreResponseFormatForRubric } from '$lib/responseSchemas';
@@ -42,24 +43,28 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   try {
-    const { markdown: rubric, definition: rubricDefinition } = await readEvaluationRubric(mode);
+    const { definition: rubricDefinition, guidance } = await readEvaluationRubric(mode);
     const modeDefinition = evaluationModeDefinition(mode);
     const runtimeSupport = modeDefinition.referenceDataPath
       ? await readRuntimeSupportMatrix(modeDefinition.referenceDataPath)
       : null;
 
-    const { llmBaseUrl, llmModel, useJsonSchema, aiTooling } = await readAppSettings();
+    const { llmBaseUrl, llmModel, useJsonSchema, aiTooling, llmContextTokens } = await readAppSettings();
+    const apiKey = await readLlmApiKey();
+    const contextWindow = await resolveContextWindow({ baseUrl: llmBaseUrl, model: llmModel, configuredTokens: llmContextTokens, apiKey });
 
     const result = await scoreRepo({
       name,
       repoPath: path,
-      rubric,
+      guidance,
       rubricDefinition,
       llmConfig: {
         baseUrl: llmBaseUrl,
         model: llmModel,
         maxTokens: 4096,
-        apiKey: await readLlmApiKey(),
+        apiKey,
+        contextTokens: contextWindow.tokens,
+        contextSource: contextWindow.source,
         responseFormat: useJsonSchema ? scoreResponseFormatForRubric(rubricDefinition) : undefined
       },
       evaluationMode: mode,

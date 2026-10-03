@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PageData } from './$types';
   import { bandColor } from '$lib/types';
+  import { describePromptContext } from '$lib/promptBudget';
 
   let { data }: { data: PageData } = $props();
 
@@ -186,7 +187,7 @@
     {#if data.isStaleRubric}
       <div class="notice stale-notice">
         Scored with rubric v{r.rubricVersion ?? '1.0'}; the current rubric is v{data.rubric.version}.
-        Category weights changed, so the breakdown below uses the old scale.
+        Scores from different rubric versions are not directly comparable.
         {#if data.hasProfiles}Re-score to see Cloud and Local scores.{:else}Re-score to update.{/if}
       </div>
     {/if}
@@ -197,6 +198,11 @@
       <span style="color:#666; font-size:0.85rem">
         {r.primaryLanguage} · scored {new Date(r.scoredAt).toLocaleString()}
       </span>
+      {#if r.promptContext}
+        <span class="muted prompt-context" title="How much rubric text the scoring prompts carried. Smaller models get excerpts only when the full rubric would not fit their context window.">
+          Rubric context: {describePromptContext(r.promptContext)}
+        </span>
+      {/if}
       {#if hasScoreStages}
         <div class="score-stages">
           <span>Model: {modelScore} {modelBand}</span>
@@ -432,6 +438,9 @@
         </div>
         <p class="muted">
           Generated {new Date(plan.generatedAt).toLocaleString()}
+          {#if plan.promptContext}
+            · rubric context: {describePromptContext(plan.promptContext)}
+          {/if}
           {#if exportedAt}
             · exported {new Date(exportedAt).toLocaleString()}
           {/if}

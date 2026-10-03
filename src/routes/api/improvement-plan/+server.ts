@@ -2,6 +2,7 @@ import type { RequestHandler } from './$types';
 import { error, json } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
 import { readAppSettings, readLlmApiKey } from '$lib/server/appSettings';
+import { resolveContextWindow } from '$lib/server/modelContext';
 import { isGitRepo, readRepoConfig } from '$lib/server/repoConfig';
 import { parseEvaluationMode, readEvaluationRubric } from '$lib/evaluationModes';
 import {
@@ -64,7 +65,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(400, 'Unsupported improvement plan action');
 	}
 
-	const { markdown: rubric } = await readEvaluationRubric(mode);
+	const { guidance } = await readEvaluationRubric(mode);
 
 	const score = storage().getScore(name, mode);
 	if (!score) {
@@ -74,13 +75,17 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(409, 'Stored score belongs to a different evaluation mode');
 	}
 
-	const { llmBaseUrl, llmModel, aiTooling, useJsonSchema } = await readAppSettings();
+	const { llmBaseUrl, llmModel, aiTooling, useJsonSchema, llmContextTokens } = await readAppSettings();
+	const apiKey = await readLlmApiKey();
+	const contextWindow = await resolveContextWindow({ baseUrl: llmBaseUrl, model: llmModel, configuredTokens: llmContextTokens, apiKey });
 	try {
-		const plan = await generateImprovementPlan(name, path, rubric, score, {
+		const plan = await generateImprovementPlan(name, path, guidance, score, {
 			baseUrl: llmBaseUrl,
 			model: llmModel,
 			maxTokens: 4096,
-			apiKey: await readLlmApiKey(),
+			apiKey,
+			contextTokens: contextWindow.tokens,
+			contextSource: contextWindow.source,
 			responseFormat: useJsonSchema ? improvementPlanResponseFormat : undefined
 		}, aiTooling, mode);
 		return json(plan);

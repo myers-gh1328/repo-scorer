@@ -121,3 +121,32 @@ describe('LLM API key', () => {
 		await expect(llmApiKeyFor('http://localhost:8080')).resolves.toBeUndefined();
 	});
 });
+
+describe('context window setting', () => {
+	const base = { llmBaseUrl: 'http://localhost:8080', llmModel: 'gpt-5.4-mini', aiTooling: 'generic' as const, useJsonSchema: false };
+
+	it('defaults to auto-detect', async () => {
+		await writeFile(envFile, 'LLM_BASE_URL=http://localhost:8080\n');
+
+		expect((await readAppSettings()).llmContextTokens).toBeNull();
+	});
+
+	it('saves a token count and clears it when blank', async () => {
+		expect((await writeAppSettings({ ...base, llmContextTokens: '32,768' })).llmContextTokens).toBe(32768);
+		expect((await readAppSettings()).llmContextTokens).toBe(32768);
+
+		expect((await writeAppSettings({ ...base, llmContextTokens: '' })).llmContextTokens).toBeNull();
+		expect((await readAppSettings()).llmContextTokens).toBeNull();
+	});
+
+	it('rejects values that are not a usable window', async () => {
+		await expect(writeAppSettings({ ...base, llmContextTokens: '512' })).rejects.toThrow('at least 1024');
+		await expect(writeAppSettings({ ...base, llmContextTokens: 'big' })).rejects.toThrow('whole number');
+	});
+
+	it('ignores a malformed value in .env instead of failing', async () => {
+		await writeFile(envFile, 'LLM_CONTEXT_TOKENS=lots\n');
+
+		expect((await readAppSettings()).llmContextTokens).toBeNull();
+	});
+});

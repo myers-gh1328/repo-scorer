@@ -11,6 +11,7 @@ import {
 } from './improvementPlanner';
 import { callLLM } from './llmClient';
 import { resetStorageForTests, storage } from './server/storage';
+import { plainRubricGuidance } from './rubricGuidance';
 import type { ScoreResult } from './types';
 
 vi.mock('./llmClient', () => ({ callLLM: vi.fn() }));
@@ -261,7 +262,7 @@ describe('generateImprovementPlan', () => {
 		const repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-plan-'));
 		vi.mocked(callLLM).mockResolvedValue(JSON.stringify(validPlan));
 
-		const result = await generateImprovementPlan('repo-scorer', repoDir, 'rubric', score, { baseUrl: 'http://localhost:8080' });
+		const result = await generateImprovementPlan('repo-scorer', repoDir, plainRubricGuidance('rubric'), score, { baseUrl: 'http://localhost:8080' });
 
 		expect(storage().getImprovementPlan('repo-scorer')).toMatchObject({
 			generatedAt: result.generatedAt,
@@ -277,7 +278,7 @@ describe('generateImprovementPlan', () => {
 		const result = await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);
@@ -293,7 +294,7 @@ describe('generateImprovementPlan', () => {
 		await expect(generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			{
 				...score,
 				recommendations: ['Add portable scoped guidance for this repository']
@@ -315,7 +316,7 @@ describe('generateImprovementPlan', () => {
 		const result = await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 			'cursor'
@@ -333,7 +334,7 @@ describe('generateImprovementPlan', () => {
 		const result = await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);
@@ -352,7 +353,7 @@ describe('generateImprovementPlan', () => {
 		await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);
@@ -417,7 +418,7 @@ describe('generateImprovementPlan', () => {
 		await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			maintainabilityScore,
 			{ baseUrl: 'http://localhost:8080' },
 			'generic',
@@ -450,7 +451,7 @@ describe('generateImprovementPlan', () => {
 		await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);
@@ -480,7 +481,7 @@ describe('generateImprovementPlan', () => {
 		await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);
@@ -504,7 +505,7 @@ describe('generateImprovementPlan', () => {
 		await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);
@@ -529,7 +530,7 @@ describe('generateImprovementPlan', () => {
 		const result = await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);
@@ -566,7 +567,7 @@ describe('generateImprovementPlan', () => {
 		const result = await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);
@@ -591,7 +592,7 @@ describe('generateImprovementPlan', () => {
 		const result = await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);
@@ -616,7 +617,7 @@ describe('generateImprovementPlan', () => {
 		const result = await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);
@@ -643,7 +644,7 @@ describe('generateImprovementPlan', () => {
 		await generateImprovementPlan(
 			'repo-scorer',
 			repoDir,
-			'rubric',
+			plainRubricGuidance('rubric'),
 			score,
 			{ baseUrl: 'http://localhost:8080' },
 		);

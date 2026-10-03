@@ -1,76 +1,110 @@
 {
-  "version": "0.2-draft",
+  "version": "0.3-draft",
   "totalScore": 100,
+  "guidance": {
+    "scoringSection": "Scoring Principles",
+    "sharedSections": []
+  },
   "categories": [
     {
       "key": "verification_coverage",
       "label": "Verification coverage",
       "weight": 15,
       "scannerSection": "Verification",
-      "evaluate": "Unit, integration, API, UI, or end-to-end tests exist where appropriate; tests cover important behavior and are runnable locally with documented commands"
+      "evaluate": "Unit, integration, API, UI, or end-to-end tests exist where appropriate; tests cover important behavior and are runnable locally with documented commands",
+      "guidanceSections": [
+        "Verification Coverage"
+      ]
     },
     {
       "key": "build_delivery_hygiene",
       "label": "Build and delivery hygiene",
       "weight": 12,
       "scannerSection": "Build and delivery",
-      "evaluate": "Build, lint, typecheck, test, CI, and release/deploy workflows are discoverable, repeatable, and aligned with documented commands"
+      "evaluate": "Build, lint, typecheck, test, CI, and release/deploy workflows are discoverable, repeatable, and aligned with documented commands",
+      "guidanceSections": [
+        "Build and Delivery Hygiene"
+      ]
     },
     {
       "key": "runtime_dependency_health",
       "label": "Runtime and dependency health",
       "weight": 12,
       "scannerSection": "Runtime and dependencies",
-      "evaluate": "Language runtimes, frameworks, package managers, IaC tooling, providers, images, and core dependencies are supported, intentionally versioned, and not known EOL according to checked-in reference data"
+      "evaluate": "Language runtimes, frameworks, package managers, IaC tooling, providers, images, and core dependencies are supported, intentionally versioned, and not known EOL according to checked-in reference data",
+      "guidanceSections": [
+        "Runtime and Dependency Health"
+      ]
     },
     {
       "key": "repository_hygiene",
       "label": "Repository hygiene",
       "weight": 10,
       "scannerSection": "Repository hygiene",
-      "evaluate": "The repo has expected stack files, lockfiles where appropriate, useful gitignore coverage, generated/cache/build outputs excluded, and safe example config without real secrets"
+      "evaluate": "The repo has expected stack files, lockfiles where appropriate, useful gitignore coverage, generated/cache/build outputs excluded, and safe example config without real secrets",
+      "guidanceSections": [
+        "Repository Hygiene"
+      ]
     },
     {
       "key": "credential_identity_hygiene",
       "label": "Credential and identity hygiene",
       "weight": 10,
       "scannerSection": "Credential and identity hygiene",
-      "evaluate": "Secrets are not committed; password, API-key, token, and client-secret use is isolated and documented; cloud or CI/CD integrations prefer managed identity, workload identity, OIDC, IAM roles, or secret-store references where supported"
+      "evaluate": "Secrets are not committed; password, API-key, token, and client-secret use is isolated and documented; cloud or CI/CD integrations prefer managed identity, workload identity, OIDC, IAM roles, or secret-store references where supported",
+      "guidanceSections": [
+        "Credential and Identity Hygiene"
+      ]
     },
     {
       "key": "iac_hygiene",
       "label": "Infrastructure as Code hygiene",
       "weight": 10,
       "scannerSection": "Infrastructure as Code",
-      "evaluate": "When IaC or deployment configuration is present, infrastructure changes are repeatable, reviewable, validated, version-aware, and safely separated across environments"
+      "evaluate": "When IaC or deployment configuration is present, infrastructure changes are repeatable, reviewable, validated, version-aware, and safely separated across environments",
+      "guidanceSections": [
+        "Infrastructure as Code Hygiene"
+      ]
     },
     {
       "key": "code_organization",
       "label": "Code organization",
       "weight": 10,
       "scannerSection": "Code organization",
-      "evaluate": "Module boundaries are clear; domain logic is separated from framework glue where practical; file layout is predictable; large files, tangled dependencies, and copy-paste duplication are limited"
+      "evaluate": "Module boundaries are clear; domain logic is separated from framework glue where practical; file layout is predictable; large files, tangled dependencies, and copy-paste duplication are limited",
+      "guidanceSections": [
+        "Code Organization"
+      ]
     },
     {
       "key": "change_safety",
       "label": "Change safety",
       "weight": 8,
       "scannerSection": "Change safety",
-      "evaluate": "Common changes are localized; APIs, storage, migrations, config, and compatibility risks are handled deliberately; rollback or recovery paths exist for risky changes"
+      "evaluate": "Common changes are localized; APIs, storage, migrations, config, and compatibility risks are handled deliberately; rollback or recovery paths exist for risky changes",
+      "guidanceSections": [
+        "Change Safety"
+      ]
     },
     {
       "key": "operational_support",
       "label": "Operational support",
       "weight": 7,
       "scannerSection": "Operational support",
-      "evaluate": "Logs, errors, health checks, configuration, observability, and debugging instructions are useful enough to operate and troubleshoot the software"
+      "evaluate": "Logs, errors, health checks, configuration, observability, and debugging instructions are useful enough to operate and troubleshoot the software",
+      "guidanceSections": [
+        "Operational Support"
+      ]
     },
     {
       "key": "documentation_onboarding",
       "label": "Documentation and onboarding",
       "weight": 6,
       "scannerSection": "Documentation and onboarding",
-      "evaluate": "README, setup, architecture, contribution, testing, deployment, and troubleshooting docs exist where useful and match actual files, scripts, and workflows"
+      "evaluate": "README, setup, architecture, contribution, testing, deployment, and troubleshooting docs exist where useful and match actual files, scripts, and workflows",
+      "guidanceSections": [
+        "Documentation and Onboarding"
+      ]
     }
   ],
   "bands": [

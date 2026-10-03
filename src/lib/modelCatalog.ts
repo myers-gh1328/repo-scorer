@@ -8,10 +8,17 @@ export const KNOWN_MODEL_IDS = [
 ] as const;
 
 export const DEFAULT_MODEL_ID: string = 'gpt-5.4-mini';
+// Conservative floor for the known hosted models; their real windows are larger. Only used when
+// neither the settings nor the server report a context window.
+const KNOWN_MODEL_CONTEXT_FLOOR_TOKENS = 128_000;
 const BLOCKED_MODEL_IDS = new Set(['local']);
 
 export function isKnownModelId(value: string): boolean {
 	return (KNOWN_MODEL_IDS as readonly string[]).includes(value);
+}
+
+export function knownModelContextTokens(value: string): number | undefined {
+	return isKnownModelId(value.trim()) ? KNOWN_MODEL_CONTEXT_FLOOR_TOKENS : undefined;
 }
 
 export function isBlockedModelId(value: string): boolean {
