@@ -236,6 +236,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .score-hero {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 1rem;
   margin-bottom: 2rem;
@@ -243,6 +244,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .score-number { font-size: 4rem; font-weight: bold; line-height: 1; }
 .band-label { font-size: 1.4rem; font-weight: 600; }
+.prompt-context { font-size: 0.8rem; }
 .score-stages {
   display: flex;
   flex-wrap: wrap;

@@ -5,11 +5,12 @@ import { scanRepo } from './scanner';
 import { callLLM } from './llmClient';
 import { CATEGORY_LABELS, CATEGORY_MAX, DEFAULT_EVALUATION_MODE } from './types';
 import { storage } from './server/storage';
+import { availableGuidanceLevels, guidanceText, type GuidanceLevel, type RubricGuidance } from './rubricGuidance';
+import { chooseGuidanceLevel, inputTokenBudget, isContextLengthError, nextGuidanceLevel } from './promptBudget';
 import type { AiTooling } from './server/appSettings';
 import type {
 	CategoryScores,
 	ImprovementPlan,
-	ImprovementPlansStore,
 	ImprovementTask,
 	LLMConfig,
 	RepoConfig,
@@ -36,17 +37,38 @@ export function assertImprovementPlanExportAllowed(repo: RepoConfig): void {
 export async function generateImprovementPlan(
 	repoName: string,
 	repoPath: string,
-	rubric: string,
+	guidance: RubricGuidance,
 	score: ScoreResult,
 	llmConfig: LLMConfig,
-	plansPath: string | undefined,
 	aiTooling: AiTooling = 'generic',
 	evaluationMode: EvaluationMode = score.evaluationMode ?? DEFAULT_EVALUATION_MODE
 ): Promise<ImprovementPlan> {
 	const scan = await scanRepo(repoPath);
 	const inventory = await collectRepoInventory(repoPath);
 	const validationCandidates = await collectValidationCommandCandidates(repoPath, inventory);
-	const raw = await callPlanModel(llmConfig, buildImprovementPrompt(repoName, rubric, score, scan.files, inventory, validationCandidates, aiTooling, evaluationMode));
+	const categoryKeys = Object.keys(score.categories ?? {});
+	const levels = availableGuidanceLevels(guidance, categoryKeys);
+	const build = (level: GuidanceLevel) => buildImprovementPrompt(
+		repoName, guidanceText(guidance, level, categoryKeys), score, scan.files, inventory, validationCandidates, aiTooling, evaluationMode
+	);
+	const choice = chooseGuidanceLevel(levels, build, inputTokenBudget(llmConfig));
+	let level = choice.level;
+	let raw: string;
+	let prompt = choice.prompt;
+	for (;;) {
+		try {
+			raw = await callLLM(llmConfig, prompt);
+			break;
+		} catch (e) {
+			const lower = isContextLengthError(e) ? nextGuidanceLevel(levels, level) : undefined;
+			if (!lower) {
+				const msg = e instanceof Error ? e.message : String(e);
+				throw new Error(`LLM_UNREACHABLE: ${msg}`);
+			}
+			level = lower;
+			prompt = build(level);
+		}
+	}
 	let repairCount = 0;
 	let plan = prepareGeneratedPlan(tryParseImprovementPlan(raw, repoName, score), aiTooling);
 	let validationErrors = plan ? validateImprovementPlan(plan, aiTooling, inventory) : ['Response was not valid JSON matching the required plan schema.'];
@@ -76,22 +98,16 @@ export async function generateImprovementPlan(
 	plan.evaluationMode = evaluationMode;
 	plan.sourceRepoPath = repoPath;
 	plan.repairCount = repairCount;
+	plan.promptContext = {
+		...(llmConfig.contextTokens ? { contextTokens: llmConfig.contextTokens } : {}),
+		contextSource: llmConfig.contextSource ?? (llmConfig.contextTokens ? 'setting' : 'unknown'),
+		levels: { plan: level },
+		evidenceTrimmed: []
+	};
 	plan.qualityWarnings = [...qualityWarnings];
 	plan.markdown = renderImprovementMarkdown(plan);
 
-	if (!plansPath) {
-		storage().saveImprovementPlan(repoName, plan, evaluationMode);
-		return plan;
-	}
-
-	let plans: ImprovementPlansStore = {};
-	try {
-		plans = JSON.parse(await readFile(plansPath, 'utf-8'));
-	} catch {
-		// file missing or corrupt - start fresh
-	}
-	plans[repoName] = plan;
-	await writeFile(plansPath, JSON.stringify(plans, null, 2));
+	storage().saveImprovementPlan(repoName, plan, evaluationMode);
 	return plan;
 }
 
@@ -134,31 +150,6 @@ export async function exportImprovementPlanToRepo(repoPath: string, plan: Improv
 	await ensureAgentsPointer(agentsPath, exportPath);
 
 	return { planPath: exportPath, agentsPath: 'AGENTS.md' };
-}
-
-export async function markImprovementPlanExported(
-	plansPath: string | undefined,
-	repoName: string,
-	exported: { planPath: string; agentsPath: string },
-	evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE
-): Promise<ImprovementPlan> {
-	if (!plansPath) {
-		return storage().markImprovementPlanExported(repoName, exported, evaluationMode);
-	}
-	const plans: ImprovementPlansStore = JSON.parse(await readFile(plansPath, 'utf-8'));
-	const plan = plans[repoName];
-	if (!plan) {
-		throw new Error('PLAN_NOT_FOUND');
-	}
-	const updated = {
-		...plan,
-		exportedAt: new Date().toISOString(),
-		exportedPlanPath: exported.planPath,
-		exportedAgentsPath: exported.agentsPath
-	};
-	plans[repoName] = updated;
-	await writeFile(plansPath, JSON.stringify(plans, null, 2));
-	return updated;
 }
 
 function tryParseImprovementPlan(raw: string, repoName: string, score: ScoreResult): ImprovementPlan | null {
@@ -587,7 +578,7 @@ This repository has a generated agent-facing improvement plan at \`${exportPath}
 
 function buildImprovementPrompt(
 	repoName: string,
-	rubric: string,
+	rubricText: string,
 	score: ScoreResult,
 	files: { relativePath: string; content: string }[],
 	inventory: RepoInventory,
@@ -607,10 +598,7 @@ ${repoName}
 ## CURRENT SCORE RESULT
 ${JSON.stringify(score, null, 2)}
 
-## RUBRIC
-${rubric}
-
-## REPOSITORY EVIDENCE
+${rubricText ? `## RUBRIC\n${rubricText}\n\n` : ''}## REPOSITORY EVIDENCE
 ${evidence}
 
 ## REPOSITORY PATH INVENTORY

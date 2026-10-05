@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { DEFAULT_OPENAI_MODEL_ID, normalizeModelId } from '$lib/modelCatalog';
+import { DEFAULT_MODEL_ID, normalizeModelId } from '$lib/modelCatalog';
 import { DEFAULT_LOCAL_MODEL_TIER, LOCAL_MODEL_TIERS, type LocalModelTier } from '$lib/types';
 
 const DEFAULT_ENV_PATH = '.env';
@@ -13,9 +13,16 @@ export interface AppSettings {
 	aiTooling: AiTooling;
 	useJsonSchema: boolean;
 	localModelTier: LocalModelTier;
+	/** Scoring model's context window in tokens; null means auto-detect. */
+	llmContextTokens: number | null;
 }
 
-export type AppSettingsInput = Omit<AppSettings, 'localModelTier'> & { localModelTier?: string };
+export type AppSettingsInput = Omit<AppSettings, 'localModelTier' | 'llmContextTokens'> & {
+	localModelTier?: string;
+	llmContextTokens?: number | string | null;
+};
+
+export const MIN_CONTEXT_TOKENS = 1024;
 
 export async function readAppSettings(): Promise<AppSettings> {
 	const explicitBaseUrl = await readEnvValue('LLM_BASE_URL');
@@ -23,7 +30,7 @@ export async function readAppSettings(): Promise<AppSettings> {
 	const explicitModel = await readEnvValue('LLM_MODEL');
 	const legacyModel = explicitModel ? null : await readEnvValue('MLX_MODEL');
 	const llmBaseUrl = explicitBaseUrl ?? legacyBaseUrl ?? DEFAULT_LLM_BASE_URL;
-	const llmModel = normalizeModel(explicitModel ?? legacyModel ?? DEFAULT_OPENAI_MODEL_ID);
+	const llmModel = normalizeModel(explicitModel ?? legacyModel ?? DEFAULT_MODEL_ID);
 
 	if (!explicitBaseUrl && legacyBaseUrl) {
 		await writeEnvValue('LLM_BASE_URL', llmBaseUrl);
@@ -39,8 +46,25 @@ export async function readAppSettings(): Promise<AppSettings> {
 		llmModel,
 		aiTooling: normalizeAiTooling(await readEnvValue('AI_TOOLING') ?? 'generic'),
 		useJsonSchema: normalizeBoolean(await readEnvValue('USE_JSON_SCHEMA') ?? 'false'),
-		localModelTier: normalizeLocalModelTier(await readEnvValue('LOCAL_MODEL_TIER') ?? DEFAULT_LOCAL_MODEL_TIER)
+		localModelTier: normalizeLocalModelTier(await readEnvValue('LOCAL_MODEL_TIER') ?? DEFAULT_LOCAL_MODEL_TIER),
+		llmContextTokens: parseContextTokens(await readEnvValue('LLM_CONTEXT_TOKENS'))
 	};
+}
+
+// Kept out of AppSettings so GET /api/settings never sends it to the browser.
+export async function readLlmApiKey(): Promise<string | undefined> {
+	const value = (await readEnvValue('LLM_API_KEY'))?.trim();
+	return value || undefined;
+}
+
+// Only for requests to the saved server, so a user-supplied URL can never receive the key.
+export async function llmApiKeyFor(baseUrl: string): Promise<string | undefined> {
+	const configured = await readEnvValue('LLM_BASE_URL') ?? await readEnvValue('MLX_BASE_URL') ?? DEFAULT_LLM_BASE_URL;
+	try {
+		return normalizeBaseUrl(configured) === normalizeBaseUrl(baseUrl) ? await readLlmApiKey() : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 export async function writeAppSettings(settings: AppSettingsInput): Promise<AppSettings> {
@@ -49,17 +73,37 @@ export async function writeAppSettings(settings: AppSettingsInput): Promise<AppS
 	const aiTooling = normalizeAiTooling(settings.aiTooling);
 	const useJsonSchema = Boolean(settings.useJsonSchema);
 	const localModelTier = normalizeLocalModelTier(settings.localModelTier ?? DEFAULT_LOCAL_MODEL_TIER);
+	const llmContextTokens = normalizeContextTokens(settings.llmContextTokens);
 	await writeEnvValue('LLM_BASE_URL', llmBaseUrl);
 	await writeEnvValue('LLM_MODEL', llmModel);
 	await writeEnvValue('AI_TOOLING', aiTooling);
 	await writeEnvValue('USE_JSON_SCHEMA', String(useJsonSchema));
 	await writeEnvValue('LOCAL_MODEL_TIER', localModelTier);
+	await writeEnvValue('LLM_CONTEXT_TOKENS', llmContextTokens === null ? '' : String(llmContextTokens));
 	process.env.LLM_BASE_URL = llmBaseUrl;
 	process.env.LLM_MODEL = llmModel;
 	process.env.AI_TOOLING = aiTooling;
 	process.env.USE_JSON_SCHEMA = String(useJsonSchema);
 	process.env.LOCAL_MODEL_TIER = localModelTier;
-	return { llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier };
+	return { llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier, llmContextTokens };
+}
+
+/** Blank means auto-detect. Anything else must be a whole number of tokens of at least MIN_CONTEXT_TOKENS. */
+export function normalizeContextTokens(value: number | string | null | undefined): number | null {
+	if (value === null || value === undefined || String(value).trim() === '') return null;
+	const tokens = Number(String(value).trim().replace(/[_,]/g, ''));
+	if (!Number.isInteger(tokens) || tokens < MIN_CONTEXT_TOKENS) {
+		throw new Error(`Context window must be blank (auto-detect) or a whole number of at least ${MIN_CONTEXT_TOKENS} tokens`);
+	}
+	return tokens;
+}
+
+function parseContextTokens(value: string | null): number | null {
+	try {
+		return normalizeContextTokens(value);
+	} catch {
+		return null;
+	}
 }
 
 export function normalizeBaseUrl(value: string): string {
@@ -88,7 +132,7 @@ export function normalizeLocalModelTier(value: string): LocalModelTier {
 }
 
 export function normalizeModel(value: string): string {
-	return normalizeModelId(value.trim() || DEFAULT_OPENAI_MODEL_ID);
+	return normalizeModelId(value.trim() || DEFAULT_MODEL_ID);
 }
 
 function normalizeBoolean(value: string): boolean {

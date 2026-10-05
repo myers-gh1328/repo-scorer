@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { callLLM } from './llmClient';
 import type { LLMConfig } from './types';
 
@@ -66,7 +66,7 @@ describe('callLLM', () => {
       text: async () => 'Service Unavailable'
     }));
 
-    await expect(callLLM(config, 'prompt')).rejects.toThrow('503');
+    await expect(callLLM({ ...config, maxRetries: 0 }, 'prompt')).rejects.toThrow('503');
   });
 
   it('uses a configured model name when provided', async () => {
@@ -82,7 +82,7 @@ describe('callLLM', () => {
     expect(body.model).toBe('gpt-5.4-nano');
   });
 
-  it('uses the default suggested OpenAI model when omitted', async () => {
+  it('uses the default model when omitted', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ choices: [{ message: { content: '{}' } }] })
@@ -151,5 +151,86 @@ describe('callLLM', () => {
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.response_format.type).toBe('json_schema');
     expect(body.response_format.json_schema.name).toBe('test');
+  });
+
+  it('sends a bearer token only when an API key is configured', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: '{}' } }] })
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    await callLLM(config, 'prompt');
+    await callLLM({ ...config, apiKey: 'sk-test' }, 'prompt');
+
+    expect(mockFetch.mock.calls[0][1].headers).not.toHaveProperty('Authorization');
+    expect(mockFetch.mock.calls[1][1].headers.Authorization).toBe('Bearer sk-test');
+  });
+
+  it('passes a timeout signal to fetch', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: '{}' } }] })
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    await callLLM(config, 'prompt');
+
+    expect(mockFetch.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('reports timeouts without retrying', async () => {
+    const timeout = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+    const mockFetch = vi.fn().mockRejectedValue(timeout);
+    vi.stubGlobal('fetch', mockFetch);
+
+    await expect(callLLM({ ...config, timeoutMs: 30_000 }, 'prompt')).rejects.toThrow('LLM request timed out after 30s');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  describe('retries', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('retries connection errors and retryable statuses with backoff', async () => {
+      const mockFetch = vi.fn()
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'loading model' })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ choices: [{ message: { content: 'done' } }] })
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const pending = callLLM(config, 'prompt');
+      await vi.runAllTimersAsync();
+
+      await expect(pending).resolves.toBe('done');
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('gives up after maxRetries and surfaces the last error', async () => {
+      const mockFetch = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+      vi.stubGlobal('fetch', mockFetch);
+
+      const pending = callLLM({ ...config, maxRetries: 1 }, 'prompt');
+      const assertion = expect(pending).rejects.toThrow('fetch failed');
+      await vi.runAllTimersAsync();
+
+      await assertion;
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry client errors', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => 'bad request' });
+      vi.stubGlobal('fetch', mockFetch);
+
+      await expect(callLLM(config, 'prompt')).rejects.toThrow('LLM returned 400');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
   });
 });

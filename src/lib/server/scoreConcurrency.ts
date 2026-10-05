@@ -30,7 +30,6 @@ interface ActiveScoreJob {
 }
 
 const activeScores = new Map<string, ActiveScoreJob>();
-let scoreWriteQueue: Promise<void> = Promise.resolve();
 
 export function beginScoring(repoName: string, evaluationMode: EvaluationMode = DEFAULT_EVALUATION_MODE): boolean {
 	const key = jobKey(repoName, evaluationMode);
@@ -108,22 +107,4 @@ function jobKey(repoName: string, evaluationMode: EvaluationMode): string {
 function percent(currentStep: number, totalSteps: number): number {
 	if (totalSteps <= 0) return 0;
 	return Math.max(0, Math.min(100, Math.round((currentStep / totalSteps) * 100)));
-}
-
-export async function withScoreWriteLock<T>(write: () => Promise<T>): Promise<T> {
-	const previous = scoreWriteQueue;
-	let release!: () => void;
-	scoreWriteQueue = new Promise<void>(resolve => {
-		release = resolve;
-	});
-
-	await previous.catch(() => {
-		// A failed write should not permanently block later writes.
-	});
-
-	try {
-		return await write();
-	} finally {
-		release();
-	}
 }

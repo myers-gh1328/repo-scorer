@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readAppSettings, writeAppSettings } from './appSettings';
+import { llmApiKeyFor, readAppSettings, writeAppSettings } from './appSettings';
 
 let dir: string;
 let envFile: string;
@@ -97,5 +97,56 @@ describe('local model tier', () => {
 		expect(settings.localModelTier).toBe('small');
 		expect(await readFile(envFile, 'utf-8')).toContain('LOCAL_MODEL_TIER=small');
 		expect((await readAppSettings()).localModelTier).toBe('small');
+	});
+});
+
+describe('LLM API key', () => {
+	it('is not part of the settings returned to the browser', async () => {
+		await writeFile(envFile, 'LLM_BASE_URL=http://localhost:8080\nLLM_API_KEY=sk-secret\n');
+
+		expect(JSON.stringify(await readAppSettings())).not.toContain('sk-secret');
+	});
+
+	it('is only released for the configured base URL', async () => {
+		await writeFile(envFile, 'LLM_BASE_URL=http://localhost:8080\nLLM_API_KEY=sk-secret\n');
+
+		await expect(llmApiKeyFor('http://localhost:8080/')).resolves.toBe('sk-secret');
+		await expect(llmApiKeyFor('http://attacker.example')).resolves.toBeUndefined();
+		await expect(llmApiKeyFor('not a url')).resolves.toBeUndefined();
+	});
+
+	it('is undefined when unset or blank', async () => {
+		await writeFile(envFile, 'LLM_BASE_URL=http://localhost:8080\nLLM_API_KEY=\n');
+
+		await expect(llmApiKeyFor('http://localhost:8080')).resolves.toBeUndefined();
+	});
+});
+
+describe('context window setting', () => {
+	const base = { llmBaseUrl: 'http://localhost:8080', llmModel: 'gpt-5.4-mini', aiTooling: 'generic' as const, useJsonSchema: false };
+
+	it('defaults to auto-detect', async () => {
+		await writeFile(envFile, 'LLM_BASE_URL=http://localhost:8080\n');
+
+		expect((await readAppSettings()).llmContextTokens).toBeNull();
+	});
+
+	it('saves a token count and clears it when blank', async () => {
+		expect((await writeAppSettings({ ...base, llmContextTokens: '32,768' })).llmContextTokens).toBe(32768);
+		expect((await readAppSettings()).llmContextTokens).toBe(32768);
+
+		expect((await writeAppSettings({ ...base, llmContextTokens: '' })).llmContextTokens).toBeNull();
+		expect((await readAppSettings()).llmContextTokens).toBeNull();
+	});
+
+	it('rejects values that are not a usable window', async () => {
+		await expect(writeAppSettings({ ...base, llmContextTokens: '512' })).rejects.toThrow('at least 1024');
+		await expect(writeAppSettings({ ...base, llmContextTokens: 'big' })).rejects.toThrow('whole number');
+	});
+
+	it('ignores a malformed value in .env instead of failing', async () => {
+		await writeFile(envFile, 'LLM_CONTEXT_TOKENS=lots\n');
+
+		expect((await readAppSettings()).llmContextTokens).toBeNull();
 	});
 });

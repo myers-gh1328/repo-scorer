@@ -56,6 +56,15 @@ export interface RubricCategoryDefinition {
 	weight: number;
 	scannerSection?: string;
 	evaluate: string;
+	/** Rubric markdown headings with guidance for this category, most specific first. */
+	guidanceSections?: string[];
+}
+
+export interface RubricGuidanceConfig {
+	/** Heading of the scoring-scale or scoring-principles section sent with every excerpt. */
+	scoringSection?: string;
+	/** Headings sent with the full category excerpt for every category. */
+	sharedSections: string[];
 }
 
 export interface RubricBandDefinition {
@@ -98,6 +107,7 @@ export interface RubricProfileDefinition {
 export interface RubricDefinitionInput {
 	version: string;
 	totalScore: number;
+	guidance?: RubricGuidanceConfig;
 	categories: RubricCategoryDefinition[];
 	bands: RubricBandDefinition[];
 	caps?: RubricCapRuleDefinition[];
@@ -138,10 +148,12 @@ export function normalizeRubricDefinition(value: unknown): RubricDefinition {
 	}
 
 	const profiles = normalizeProfiles(value.profiles, categories, totalScore);
+	const guidance = normalizeGuidanceConfig(value.guidance);
 
 	return {
 		version,
 		totalScore,
+		...(guidance ? { guidance } : {}),
 		categories,
 		bands,
 		caps,
@@ -355,9 +367,31 @@ function normalizeCategories(value: unknown): RubricCategoryDefinition[] {
 			label: stringField(item, 'label'),
 			weight,
 			scannerSection: optionalStringField(item, 'scannerSection'),
-			evaluate: stringField(item, 'evaluate')
+			evaluate: stringField(item, 'evaluate'),
+			...(item.guidanceSections === undefined
+				? {}
+				: { guidanceSections: stringArrayField(item, 'guidanceSections', `Rubric category "${key}"`) })
 		};
 	});
+}
+
+function normalizeGuidanceConfig(value: unknown): RubricGuidanceConfig | undefined {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) {
+		throw new Error('Rubric schema guidance must be an object when present');
+	}
+	return {
+		scoringSection: optionalStringField(value, 'scoringSection'),
+		sharedSections: value.sharedSections === undefined ? [] : stringArrayField(value, 'sharedSections', 'Rubric guidance')
+	};
+}
+
+function stringArrayField(value: Record<string, unknown>, key: string, owner: string): string[] {
+	const field = value[key];
+	if (!Array.isArray(field) || field.some(item => typeof item !== 'string' || !item.trim())) {
+		throw new Error(`${owner} field "${key}" must be an array of non-empty strings`);
+	}
+	return field.map(item => (item as string).trim());
 }
 
 function normalizeBands(value: unknown, totalScore: number): RubricBandDefinition[] {

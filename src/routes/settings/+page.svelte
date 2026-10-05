@@ -15,6 +15,7 @@
 	let aiTooling = $state('generic');
 	let useJsonSchema = $state(false);
 	let localModelTier = $state('medium');
+	let llmContextTokens = $state('');
 	let saving = $state('');
 	let message = $state('');
 	let formError = $state('');
@@ -28,6 +29,7 @@
 			aiTooling = data.settings.aiTooling;
 			useJsonSchema = data.settings.useJsonSchema;
 			localModelTier = data.settings.localModelTier;
+			llmContextTokens = data.settings.llmContextTokens === null ? '' : String(data.settings.llmContextTokens);
 			initialized = true;
 		}
 	});
@@ -82,7 +84,7 @@
 			const res = await fetch('/api/settings', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier })
+				body: JSON.stringify({ llmBaseUrl, llmModel, aiTooling, useJsonSchema, localModelTier, llmContextTokens })
 			});
 			const body = await res.json().catch(() => null);
 			if (!res.ok) {
@@ -94,6 +96,7 @@
 			aiTooling = body.aiTooling;
 			useJsonSchema = body.useJsonSchema;
 			localModelTier = body.localModelTier;
+			llmContextTokens = body.llmContextTokens === null ? '' : String(body.llmContextTokens);
 			message = 'Saved LLM settings';
 		} catch {
 			formError = 'Network error while saving LLM settings';
@@ -177,6 +180,15 @@
 					<option value="small">Small (~5-14B)</option>
 					<option value="medium">Medium (~15-35B)</option>
 				</select>
+			</label>
+			<label>
+				<span>Context window (tokens)</span>
+				<input
+					bind:value={llmContextTokens}
+					inputmode="numeric"
+					placeholder="Auto-detect"
+					title="The scoring model's context window. Prompts include the full rubric unless it would not fit, then step down to per-category excerpts. Leave blank to use what the server reports; set it for local servers that don't report one (such as mlx_lm.server)."
+				/>
 			</label>
 			<label class="checkbox-label">
 				<input type="checkbox" bind:checked={useJsonSchema} />

@@ -5,8 +5,7 @@ import {
 	finishScoring,
 	getScoringJobs,
 	isAnyScoring,
-	updateScoringProgress,
-	withScoreWriteLock
+	updateScoringProgress
 } from './scoreConcurrency';
 
 describe('scoreConcurrency', () => {
@@ -41,25 +40,6 @@ describe('scoreConcurrency', () => {
 
 		finishScoring('repo-a', 'ai-readiness');
 		expect(beginScoring('repo-a', 'ai-readiness')).toBe(true);
-	});
-
-	it('serializes score writes', async () => {
-		const events: string[] = [];
-
-		await Promise.all([
-			withScoreWriteLock(async () => {
-				events.push('a:start');
-				await Promise.resolve();
-				events.push('a:end');
-			}),
-			withScoreWriteLock(async () => {
-				events.push('b:start');
-				await Promise.resolve();
-				events.push('b:end');
-			})
-		]);
-
-		expect(events).toEqual(['a:start', 'a:end', 'b:start', 'b:end']);
 	});
 
 	it('reports active scoring jobs with elapsed time', () => {
