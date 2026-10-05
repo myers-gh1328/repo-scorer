@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mkdtemp, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { appendScoreHistory, compactHistoryEntry, pruneCompactHistory } from './scoreHistory';
+import { compactHistoryEntry, pruneCompactHistory } from './scoreHistory';
 import type { ScoreResult } from './types';
 
 function score(scoredAt: string, finalScore = 74): ScoreResult {
@@ -44,27 +41,6 @@ describe('scoreHistory', () => {
 			appliedCapCount: 1,
 			failedConsistencyCheckCount: 1
 		});
-	});
-
-	it('appends compact history and keeps the last five full snapshots', async () => {
-		const dir = await mkdtemp(join(tmpdir(), 'score-history-'));
-		const path = join(dir, 'score-history.json');
-
-		// Pin the clock so the fixture dates stay inside the "keep all recent" window.
-		vi.useFakeTimers({ toFake: ['Date'] });
-		vi.setSystemTime(new Date('2026-06-25T12:00:00.000Z'));
-		try {
-			for (let index = 0; index < 7; index += 1) {
-				await appendScoreHistory(path, 'repo-a', score(`2026-06-${String(10 + index).padStart(2, '0')}T12:00:00.000Z`, 70 + index));
-			}
-		} finally {
-			vi.useRealTimers();
-		}
-
-		const stored = JSON.parse(await readFile(path, 'utf-8'));
-		expect(stored['repo-a'].compact).toHaveLength(7);
-		expect(stored['repo-a'].full).toHaveLength(5);
-		expect(stored['repo-a'].full.map((item: ScoreResult) => item.finalScore)).toEqual([72, 73, 74, 75, 76]);
 	});
 
 	it('prunes compact history by all recent, weekly, then monthly buckets', () => {

@@ -1,5 +1,5 @@
 import type { PageServerLoad } from './$types';
-import { OPENAI_MODEL_IDS } from '$lib/modelCatalog';
+import { KNOWN_MODEL_IDS } from '$lib/modelCatalog';
 import { readAppSettings } from '$lib/server/appSettings';
 import { discoverRepos, readRepoConfig } from '$lib/server/repoConfig';
 
@@ -9,5 +9,5 @@ export const load: PageServerLoad = async () => {
 		discoverRepos(),
 		readAppSettings()
 	]);
-	return { configured, discovered, settings, models: OPENAI_MODEL_IDS };
+	return { configured, discovered, settings, models: KNOWN_MODEL_IDS };
 };

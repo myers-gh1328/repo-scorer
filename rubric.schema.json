@@ -1,90 +1,143 @@
 {
-  "version": "2.0",
+  "version": "2.1",
   "totalScore": 100,
+  "guidance": {
+    "scoringSection": "0-5 scoring guidance per category",
+    "sharedSections": [
+      "5. Required standards by repo class"
+    ]
+  },
   "categories": [
     {
       "key": "persistent_guidance",
       "label": "Persistent guidance",
       "weight": 12,
       "scannerSection": "Persistent guidance",
-      "evaluate": "`AGENTS.md` or equivalent exists and is concise, accurate, and limited to non-inferable guidance: exact commands, safety boundaries, and pointers to canonical docs. Reward brevity; long always-on files and content an agent could infer from the code are quality risks. Claude Code reads `AGENTS.md` natively unless a `CLAUDE.md` shadows it without importing it; root `.cursorrules` counts as deprecated persistent guidance; nested guidance is expected only for multi-project or multi-service repos"
+      "evaluate": "`AGENTS.md` or equivalent exists and is concise, accurate, and limited to non-inferable guidance: exact commands, safety boundaries, and pointers to canonical docs. Reward brevity; long always-on files and content an agent could infer from the code are quality risks. Claude Code reads `AGENTS.md` natively unless a `CLAUDE.md` shadows it without importing it; root `.cursorrules` counts as deprecated persistent guidance; nested guidance is expected only for multi-project or multi-service repos",
+      "guidanceSections": [
+        "Persistent guidance",
+        "3.1 Persistent guidance files"
+      ]
     },
     {
       "key": "scoped_rules",
       "label": "Scoped rules",
       "weight": 8,
       "scannerSection": "Scoped rules",
-      "evaluate": "Cursor/Copilot/Claude path-scoped rules exist where useful, are actionable, and keep guidance out of always-on context"
+      "evaluate": "Cursor/Copilot/Claude path-scoped rules exist where useful, are actionable, and keep guidance out of always-on context",
+      "guidanceSections": [
+        "Scoped rules",
+        "3.2 Scoped rules"
+      ]
     },
     {
       "key": "skills",
       "label": "Skills",
       "weight": 10,
       "scannerSection": "Skills",
-      "evaluate": "`SKILL.md` packages cover repeated workflows with clear triggers, a `name` matching the skill directory, and supporting files where useful; portable `.agents/skills` locations work across the most agents. Legacy prompt files and commands earn partial credit"
+      "evaluate": "`SKILL.md` packages cover repeated workflows with clear triggers, a `name` matching the skill directory, and supporting files where useful; portable `.agents/skills` locations work across the most agents. Legacy prompt files and commands earn partial credit",
+      "guidanceSections": [
+        "Skills",
+        "3.3 Skills",
+        "3.5 Commands, prompt files, and reusable workflows"
+      ]
     },
     {
       "key": "specialized_agents",
       "label": "Specialized agents",
       "weight": 6,
       "scannerSection": "Specialized agents",
-      "evaluate": "Verifier, test, security, debug, or other focused agents exist where useful and use least-privilege tools. Evidence for performance benefit is limited, so do not treat missing agents as a major gap for simple repos"
+      "evaluate": "Verifier, test, security, debug, or other focused agents exist where useful and use least-privilege tools. Evidence for performance benefit is limited, so do not treat missing agents as a major gap for simple repos",
+      "guidanceSections": [
+        "Specialized agents",
+        "3.4 Specialized agents and subagents"
+      ]
     },
     {
       "key": "tool_manifests_mcp",
       "label": "Tool manifests and MCP",
       "weight": 6,
       "scannerSection": "MCP and tool configs",
-      "evaluate": "External tools are configured only where needed, secrets are externalized, and access is governed. Score as neutral (full or near-full credit) when the repo shows no external-system need; reduce the score only when an external need exists without governed access, or when MCP/tool configs are ungoverned, unpinned, or hold secrets"
+      "evaluate": "External tools are configured only where needed, secrets are externalized, and access is governed. Score as neutral (full or near-full credit) when the repo shows no external-system need; reduce the score only when an external need exists without governed access, or when MCP/tool configs are ungoverned, unpinned, or hold secrets",
+      "guidanceSections": [
+        "MCP and tool configs",
+        "3.6 MCP and tool manifests"
+      ]
     },
     {
       "key": "validation_reproducibility",
       "label": "Validation and reproducibility",
       "weight": 15,
       "scannerSection": "Validation and reproducibility",
-      "evaluate": "Agent-readable validation commands, including a narrow single-file or single-package test command, match real scripts/CI; the environment is reproducible through lockfiles, devcontainers, or cloud-agent setup such as `copilot-setup-steps.yml` or setup scripts"
+      "evaluate": "Agent-readable validation commands, including a narrow single-file or single-package test command, match real scripts/CI; the environment is reproducible through lockfiles, devcontainers, or cloud-agent setup such as `copilot-setup-steps.yml` or setup scripts",
+      "guidanceSections": [
+        "Validation and reproducibility",
+        "3.8 Validation, reproducibility, and CI"
+      ]
     },
     {
       "key": "ci_pr_automation",
       "label": "CI and PR automation",
       "weight": 10,
       "scannerSection": "CI and PR automation",
-      "evaluate": "CI validates normal work and checks agent assets or AI-assisted PRs where appropriate"
+      "evaluate": "CI validates normal work and checks agent assets or AI-assisted PRs where appropriate",
+      "guidanceSections": [
+        "CI and PR automation",
+        "3.8 Validation, reproducibility, and CI"
+      ]
     },
     {
       "key": "security_sandboxing_hooks",
       "label": "Security, sandboxing, and hooks",
       "weight": 12,
       "scannerSection": "Hooks and sandboxing",
-      "evaluate": "Hooks, deny rules, sandbox settings, approvals, and secret controls exist for risky workflows"
+      "evaluate": "Hooks, deny rules, sandbox settings, approvals, and secret controls exist for risky workflows",
+      "guidanceSections": [
+        "Hooks and sandboxing",
+        "3.7 Hooks, permissions, and sandboxing"
+      ]
     },
     {
       "key": "domain_context",
       "label": "Domain and decision context",
       "weight": 8,
       "scannerSection": "Domain and decision context",
-      "evaluate": "ADRs, contracts, glossary, examples, fixtures, and templates are available and referenced"
+      "evaluate": "ADRs, contracts, glossary, examples, fixtures, and templates are available and referenced",
+      "guidanceSections": [
+        "Domain and decision context",
+        "3.10 Domain context: ADRs, contracts, examples, and fixtures"
+      ]
     },
     {
       "key": "governance_observability",
       "label": "Governance and observability",
       "weight": 7,
       "scannerSection": "Governance and observability",
-      "evaluate": "Owners, review cadence, managed settings, logs, metrics, or dashboards exist where appropriate"
+      "evaluate": "Owners, review cadence, managed settings, logs, metrics, or dashboards exist where appropriate",
+      "guidanceSections": [
+        "Governance and observability",
+        "3.9 Governance, observability, and ownership"
+      ]
     },
     {
       "key": "versioning_provenance",
       "label": "Versioning and dependency provenance",
       "weight": 3,
       "scannerSection": "Versioning and dependency provenance",
-      "evaluate": "Agent assets are version-controlled; executable MCP/hook/skill dependencies are pinned or governed"
+      "evaluate": "Agent assets are version-controlled; executable MCP/hook/skill dependencies are pinned or governed",
+      "guidanceSections": [
+        "Versioning and dependency provenance"
+      ]
     },
     {
       "key": "onboarding_discoverability",
       "label": "Onboarding and discoverability",
       "weight": 3,
       "scannerSection": "Onboarding and discoverability",
-      "evaluate": "README or equivalent tells humans where agent guidance, rules, skills, and workflows live"
+      "evaluate": "README or equivalent tells humans where agent guidance, rules, skills, and workflows live",
+      "guidanceSections": [
+        "Onboarding and discoverability"
+      ]
     }
   ],
   "bands": [

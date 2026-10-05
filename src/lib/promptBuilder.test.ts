@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { buildCategoryPrompt, buildPrompt } from './promptBuilder';
+import { readFile } from 'node:fs/promises';
+import { buildCategoryPrompt } from './promptBuilder';
+import { loadRubricDefinition } from './rubricSchema';
+import { plainRubricGuidance, resolveRubricGuidance } from './rubricGuidance';
 import type { ScanResult } from './scanner';
 import type { RubricDefinition } from './rubricSchema';
 
-describe('buildPrompt', () => {
-  const rubric = 'Scoring rubric content goes here.';
+describe('buildCategoryPrompt', () => {
+  const rubric = plainRubricGuidance('Scoring rubric content goes here.');
   const emptyEvidence = {
     guidanceFiles: [],
     nestedGuidanceFiles: [],
@@ -28,73 +31,6 @@ describe('buildPrompt', () => {
     hasExternalUnversionedHookReference: false
   };
 
-  it('includes the rubric in the prompt', () => {
-    const scan: ScanResult = { files: [], evidence: emptyEvidence };
-    const prompt = buildPrompt(rubric, scan);
-    expect(prompt).toContain('Scoring rubric content goes here.');
-  });
-
-  it('names the maintainability guide when maintainability mode is selected', () => {
-    const scan: ScanResult = { files: [], evidence: emptyEvidence };
-    const prompt = buildPrompt(rubric, scan, 'maintainability');
-    expect(prompt).toContain('against the Maintainability Guide');
-  });
-
-  it('includes file paths and content for scanned files', () => {
-    const scan: ScanResult = {
-      files: [{ relativePath: 'AGENTS.md', content: '# Agent Guide' }],
-      evidence: { ...emptyEvidence, hasRootGuidance: true, guidanceFiles: ['AGENTS.md'] }
-    };
-    const prompt = buildPrompt(rubric, scan);
-    expect(prompt).toContain('AGENTS.md');
-    expect(prompt).toContain('Agent Guide');
-  });
-
-  it('notes when no files were found', () => {
-    const scan: ScanResult = { files: [], evidence: emptyEvidence };
-    const prompt = buildPrompt(rubric, scan);
-    expect(prompt).toContain('No agent-related files found');
-  });
-
-  it('instructs the model to return only JSON', () => {
-    const scan: ScanResult = { files: [], evidence: emptyEvidence };
-    const prompt = buildPrompt(rubric, scan);
-    expect(prompt).toContain('return ONLY a JSON object');
-  });
-
-  it('includes all 12 category keys in the expected JSON schema', () => {
-    const scan: ScanResult = { files: [], evidence: emptyEvidence };
-    const prompt = buildPrompt(rubric, scan);
-    expect(prompt).toContain('persistent_guidance');
-    expect(prompt).toContain('scoped_rules');
-    expect(prompt).toContain('skills');
-    expect(prompt).toContain('specialized_agents');
-    expect(prompt).toContain('tool_manifests_mcp');
-    expect(prompt).toContain('validation_reproducibility');
-    expect(prompt).toContain('ci_pr_automation');
-    expect(prompt).toContain('security_sandboxing_hooks');
-    expect(prompt).toContain('domain_context');
-    expect(prompt).toContain('governance_observability');
-    expect(prompt).toContain('versioning_provenance');
-    expect(prompt).toContain('onboarding_discoverability');
-  });
-
-  it('includes authoritative evidence inventory and cap guidance', () => {
-    const scan: ScanResult = { files: [], evidence: emptyEvidence };
-    const prompt = buildPrompt(rubric, scan);
-
-    expect(prompt).toContain('AUTHORITATIVE EVIDENCE INVENTORY');
-    expect(prompt).toContain('Treat it as authoritative');
-    expect(prompt).toContain('Do not infer missing artifacts');
-    expect(prompt).toContain('"hasFormalSkills": false');
-    expect(prompt).toContain('"skills" cannot exceed 4');
-    expect(prompt).toContain('"ci_pr_automation" cannot exceed 3');
-    expect(prompt).toContain('"ci_pr_automation" cannot exceed 6');
-    expect(prompt).not.toContain('"tool_manifests_mcp" cannot exceed 5');
-    expect(prompt).toContain('score "tool_manifests_mcp" as neutral');
-    expect(prompt).toContain('"persistent_guidance": <integer 0-12>');
-  });
-
   it('builds bounded category prompts with included and omitted evidence', () => {
     const scan: ScanResult = {
       files: [],
@@ -113,7 +49,7 @@ describe('buildPrompt', () => {
       bandForScore: () => 'Any'
     };
 
-    const prompt = buildCategoryPrompt(rubric, rubricDefinition, rubricDefinition.categories[0], scan, {
+    const prompt = buildCategoryPrompt(rubric, 'minimal', rubricDefinition, rubricDefinition.categories[0], scan, {
       includedFiles: [{ relativePath: 'AGENTS.md', content: '# Agent Guide' }],
       omittedFiles: ['docs/agent/large.md'],
       evidenceInventory: { hasRootGuidance: true, guidanceFiles: ['AGENTS.md'] },
@@ -129,7 +65,7 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('docs/agent/large.md');
     expect(prompt).toContain('"score": <integer 0-5>');
     expect(prompt).toContain('Return raw JSON only');
-    expect(prompt).not.toContain('## GLOBAL RUBRIC');
+    expect(prompt).not.toContain('## RUBRIC');
     expect(prompt).not.toContain('Scoring rubric content goes here.');
   });
 
@@ -159,7 +95,7 @@ describe('buildPrompt', () => {
       bandForScore: () => 'Any'
     };
 
-    const prompt = buildCategoryPrompt(rubric, rubricDefinition, rubricDefinition.categories[0], scan, {
+    const prompt = buildCategoryPrompt(rubric, 'minimal', rubricDefinition, rubricDefinition.categories[0], scan, {
       includedFiles: [{ relativePath: 'AGENTS.md', content: '# Agent Guide' }],
       omittedFiles: [],
       evidenceInventory: { hasFormalSkills: false, skillFiles: [] },
@@ -192,7 +128,7 @@ describe('buildPrompt', () => {
       bandForScore: () => 'Any'
     };
 
-    const prompt = buildCategoryPrompt(rubric, rubricDefinition, rubricDefinition.categories[0], scan, {
+    const prompt = buildCategoryPrompt(rubric, 'minimal', rubricDefinition, rubricDefinition.categories[0], scan, {
       includedFiles: [],
       omittedFiles: [],
       evidenceInventory: {},
@@ -201,5 +137,48 @@ describe('buildPrompt', () => {
     }, 'maintainability');
 
     expect(prompt).toContain('one maintainability category');
+  });
+
+  describe('rubric levels', () => {
+    const emptyBundle = { includedFiles: [], omittedFiles: [], evidenceInventory: {}, totalIncludedChars: 0, truncated: false };
+
+    async function realRubric() {
+      const definition = loadRubricDefinition(await readFile('rubric.schema.json', 'utf-8'));
+      const guidance = resolveRubricGuidance(await readFile('rubric.md', 'utf-8'), definition);
+      const category = definition.categories.find(item => item.key === 'ci_pr_automation')!;
+      return { definition, guidance, category };
+    }
+
+    it('sends the whole rubric at the full level and names the relevant sections', async () => {
+      const { definition, guidance, category } = await realRubric();
+      const prompt = buildCategoryPrompt(guidance, 'full', definition, category, { files: [], evidence: emptyEvidence }, emptyBundle);
+
+      expect(prompt).toContain('The complete rubric follows');
+      expect(prompt).toContain('"CI and PR automation", "3.8 Validation, reproducibility, and CI"');
+      expect(prompt).toContain('## 11. Common anti-patterns');
+      expect(prompt.indexOf('----- END RUBRIC -----')).toBeLessThan(prompt.indexOf('## TASK'));
+    });
+
+    it('sends the scoring anchors, shared standards and category sections at the category level', async () => {
+      const { definition, guidance, category } = await realRubric();
+      const prompt = buildCategoryPrompt(guidance, 'category', definition, category, { files: [], evidence: emptyEvidence }, emptyBundle);
+
+      expect(prompt).toContain('### 0-5 scoring guidance per category');
+      expect(prompt).toContain('## 5. Required standards by repo class');
+      expect(prompt).toContain('#### CI and PR automation');
+      expect(prompt).toContain('### 3.8 Validation, reproducibility, and CI');
+      expect(prompt).not.toContain('### 3.9 Governance');
+      expect(prompt).not.toContain('## 11. Common anti-patterns');
+    });
+
+    it('sends only the scoring anchors and pass/risk signals at the compact level', async () => {
+      const { definition, guidance, category } = await realRubric();
+      const prompt = buildCategoryPrompt(guidance, 'compact', definition, category, { files: [], evidence: emptyEvidence }, emptyBundle);
+
+      expect(prompt).toContain('### 0-5 scoring guidance per category');
+      expect(prompt).toContain('Manual-only CI');
+      expect(prompt).not.toContain('### 3.8 Validation');
+      expect(prompt).not.toContain('## 5. Required standards');
+    });
   });
 });

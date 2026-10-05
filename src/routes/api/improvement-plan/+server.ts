@@ -1,14 +1,14 @@
 import type { RequestHandler } from './$types';
 import { error, json } from '@sveltejs/kit';
 import { existsSync } from 'node:fs';
-import { readAppSettings } from '$lib/server/appSettings';
+import { readAppSettings, readLlmApiKey } from '$lib/server/appSettings';
+import { resolveContextWindow } from '$lib/server/modelContext';
 import { isGitRepo, readRepoConfig } from '$lib/server/repoConfig';
 import { parseEvaluationMode, readEvaluationRubric } from '$lib/evaluationModes';
 import {
 	assertImprovementPlanExportAllowed,
 	exportImprovementPlanToRepo,
-	generateImprovementPlan,
-	markImprovementPlanExported
+	generateImprovementPlan
 } from '$lib/improvementPlanner';
 import { improvementPlanResponseFormat } from '$lib/responseSchemas';
 import { storage } from '$lib/server/storage';
@@ -28,7 +28,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	const configs: RepoConfig[] = await readRepoConfig();
 	const repo = configs.find(repo => repo.name === name && repo.path === path);
 	if (!repo) {
-		throw error(400, `Repo "${name}" not found in repos.config.json`);
+		throw error(400, `Repo "${name}" is not a configured repo`);
 	}
 	if (!existsSync(path)) {
 		throw error(400, `Repo path not found: ${path}`);
@@ -58,14 +58,14 @@ export const POST: RequestHandler = async ({ request }) => {
 			throw error(409, 'Generated plan belongs to a different repo path. Regenerate the plan before exporting.');
 		}
 		const exported = await exportImprovementPlanToRepo(path, plan);
-		return json({ ...(await markImprovementPlanExported(undefined, name, exported, mode)), exported });
+		return json({ ...storage().markImprovementPlanExported(name, exported, mode), exported });
 	}
 
 	if (action !== 'generate') {
 		throw error(400, 'Unsupported improvement plan action');
 	}
 
-	const { markdown: rubric } = await readEvaluationRubric(mode);
+	const { guidance } = await readEvaluationRubric(mode);
 
 	const score = storage().getScore(name, mode);
 	if (!score) {
@@ -75,14 +75,19 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(409, 'Stored score belongs to a different evaluation mode');
 	}
 
-	const { llmBaseUrl, llmModel, aiTooling, useJsonSchema } = await readAppSettings();
+	const { llmBaseUrl, llmModel, aiTooling, useJsonSchema, llmContextTokens } = await readAppSettings();
+	const apiKey = await readLlmApiKey();
+	const contextWindow = await resolveContextWindow({ baseUrl: llmBaseUrl, model: llmModel, configuredTokens: llmContextTokens, apiKey });
 	try {
-		const plan = await generateImprovementPlan(name, path, rubric, score, {
+		const plan = await generateImprovementPlan(name, path, guidance, score, {
 			baseUrl: llmBaseUrl,
 			model: llmModel,
 			maxTokens: 4096,
+			apiKey,
+			contextTokens: contextWindow.tokens,
+			contextSource: contextWindow.source,
 			responseFormat: useJsonSchema ? improvementPlanResponseFormat : undefined
-		}, undefined, aiTooling, mode);
+		}, aiTooling, mode);
 		return json(plan);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);

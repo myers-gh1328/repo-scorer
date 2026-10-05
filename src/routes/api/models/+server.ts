@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
 import { error, json } from '@sveltejs/kit';
-import { normalizeBaseUrl, readAppSettings } from '$lib/server/appSettings';
+import { normalizeBaseUrl, readAppSettings, llmApiKeyFor } from '$lib/server/appSettings';
+import { llmRequestHeaders } from '$lib/llmClient';
 import { isBlockedModelId } from '$lib/modelCatalog';
 
 interface ModelListResponse {
@@ -21,7 +22,7 @@ export const GET: RequestHandler = async ({ url, fetch }) => {
 
 	let response: Response;
 	try {
-		response = await fetch(`${baseUrl}/v1/models`);
+		response = await fetch(`${baseUrl}/v1/models`, { headers: llmRequestHeaders(await llmApiKeyFor(baseUrl)) });
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		throw error(503, `LLM server unreachable: ${msg}`);

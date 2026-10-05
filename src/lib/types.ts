@@ -1,3 +1,4 @@
+import type { GuidanceLevel } from './rubricGuidance';
 export interface RepoConfig {
   name: string;
   path: string;
@@ -50,7 +51,7 @@ export interface ConsistencyCheckResult {
   impact: ConsistencyCheckImpact;
 }
 
-// Base weights match the rubric v2.0 cloud profile (rubric.schema.json).
+// Base weights match the rubric v2.x cloud profile (rubric.schema.json).
 export const CATEGORY_MAX: Record<string, number> = {
   persistent_guidance: 12,
   scoped_rules: 8,
@@ -137,6 +138,8 @@ export interface ScoreResult {
   appliedCaps?: AppliedScoreCap[];
   consistencyChecks?: ConsistencyCheckResult[];
   profileScores?: Record<string, ProfileScore>;
+  /** How much rubric text each category prompt carried, and why. Absent before rubric v2.1. */
+  promptContext?: PromptContext;
   qualityFlags: string[];
   riskFlags: string[];
   recommendations: string[];
@@ -197,6 +200,8 @@ export interface ImprovementPlan {
   weakestCategories: string[];
   prioritizedTasks: ImprovementTask[];
   markdown: string;
+  /** Rubric guidance level the plan prompt used (levels.plan). */
+  promptContext?: PromptContext;
 }
 
 export interface ImprovementPlansStore {
@@ -208,6 +213,26 @@ export interface LLMConfig {
   model?: string;
   maxTokens?: number;
   responseFormat?: LLMResponseFormat;
+  /** Sent as a Bearer token when set (hosted OpenAI-compatible endpoints). */
+  apiKey?: string;
+  /** Per-attempt request timeout. Defaults to DEFAULT_LLM_TIMEOUT_MS. */
+  timeoutMs?: number;
+  /** Retries for connection errors and 429/5xx responses. Defaults to DEFAULT_LLM_MAX_RETRIES. */
+  maxRetries?: number;
+  /** Scoring model's context window. Undefined means unknown: prompts are sent in full. */
+  contextTokens?: number;
+  contextSource?: ContextWindowSource;
+}
+
+export type ContextWindowSource = 'setting' | 'server' | 'catalog' | 'unknown';
+
+export interface PromptContext {
+  contextTokens?: number;
+  contextSource: ContextWindowSource;
+  /** Rubric guidance level used per category (or 'plan' for improvement plans). */
+  levels: Record<string, GuidanceLevel>;
+  /** Categories whose evidence was trimmed to fit the context window. */
+  evidenceTrimmed: string[];
 }
 
 export interface LLMResponseFormat {

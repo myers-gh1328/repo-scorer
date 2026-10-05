@@ -1,6 +1,6 @@
 # Maintainability Rubric - Draft
 
-**Version:** 0.2-draft
+**Version:** 0.3-draft
 
 This draft rubric evaluates whether a competent team can keep changing a repository safely, affordably, and with confidence. It is intentionally separate from the AI-readiness rubric.
 

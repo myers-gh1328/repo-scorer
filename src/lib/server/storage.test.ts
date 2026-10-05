@@ -125,6 +125,27 @@ describe('storage', () => {
 		expect(history?.full.at(-1)).toMatchObject({ score: 72, scoredAt: '2026-06-25T12:00:00.000Z' });
 	});
 
+	it('keeps every recent compact history entry but only the last five full snapshots', async () => {
+		const repoPath = await makeGitRepo('repo-a');
+		const store = storage();
+		store.addRepo({ name: 'repo-a', path: repoPath });
+
+		// Pin the clock so the fixture dates stay inside the "keep all recent" window.
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(new Date('2026-06-25T12:00:00.000Z'));
+		try {
+			for (let index = 0; index < 7; index += 1) {
+				const value = 70 + index;
+				store.saveScoreWithHistory('repo-a', { ...score(`2026-06-${String(10 + index).padStart(2, '0')}T12:00:00.000Z`, value), finalScore: value });
+			}
+			const history = store.getScoreHistory('repo-a');
+			expect(history?.compact).toHaveLength(7);
+			expect(history?.full.map(item => item.finalScore)).toEqual([72, 73, 74, 75, 76]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('keeps scores, history, and improvement plans isolated by evaluation mode', async () => {
 		const repoPath = await makeGitRepo('repo-a');
 		const store = storage();

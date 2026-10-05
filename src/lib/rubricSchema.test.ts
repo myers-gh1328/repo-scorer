@@ -15,7 +15,7 @@ describe('rubricSchema', () => {
 			weight: 12
 		});
 		expect(rubric.categoryMax.persistent_guidance).toBe(12);
-		expect(rubric.version).toBe('2.0');
+		expect(rubric.version).toBe('2.1');
 		expect(rubric.categoryLabels.tool_manifests_mcp).toBe('Tool manifests and MCP');
 		expect(rubric.totalWeight).toBe(100);
 	});
