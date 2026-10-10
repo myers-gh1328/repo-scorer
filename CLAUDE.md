@@ -65,6 +65,16 @@ Rubric, schema, and scorer changes go through the gated workflow in `docs/rubric
 
 `docs/plans/` and `docs/specs/` describe the original v1 design and are historical; the code is the source of truth.
 
+## Dev Cage
+
+`.devcontainer/` declares the sandbox image for the dev cage (aegir-infra
+ADR-0025). Dependencies are baked into the image from `package-lock.json`, and
+the sandbox has no network, so `npm install` does not work inside it. To add or
+change a dependency, edit `package.json` and `package-lock.json`, then stop; the
+image is rebuilt outside the cage. `npm run check`, `npm run build` and
+`npm run test -- --run` work offline. Scoring does not, because the model is
+unreachable from the sandbox; tests mock `$lib/mlxClient`.
+
 ## Safety Rules
 
 - Do not commit `.env`, `repo-scorer.sqlite*`, legacy JSON state files, or `node_modules/`.
