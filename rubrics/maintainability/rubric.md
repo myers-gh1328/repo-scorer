@@ -1,6 +1,6 @@
 # Maintainability Rubric - Draft
 
-**Version:** 0.3-draft
+**Version:** 0.4-draft
 
 This draft rubric evaluates whether a competent team can keep changing a repository safely, affordably, and with confidence. It is intentionally separate from the AI-readiness rubric.
 
@@ -129,6 +129,7 @@ Use LLM judgment against repo-local evidence:
 - File and folder structure is predictable.
 - Shared behavior is centralized without excessive abstraction.
 - Large files, circular dependencies, and scattered cross-cutting concerns are limited.
+- Large files are limited. When the scanner reports `fileSizeStatus: measured`, use `filesOver500Lines` and `filesOver1000Lines` (code files counted in physical lines; 500 is the top of ESLint's recommended range and 1000 is the Pylint default) and `largestFiles` (the ten largest code files, with test files tagged) as evidence. Cite specific files instead of the counts alone, and weigh large test files, fixtures, and generated code below large production modules. `fileSizeStatus: unavailable` means the check could not run and is neutral, not a penalty.
 - Copy-paste duplication is limited. When the scanner reports `duplicationStatus: measured`, use `duplicationPercentage` (share of duplicated code lines found by jscpd, code files only) and `duplicationTopPairs` (largest clone pairs with file and line ranges) as evidence. Cite specific pairs instead of the percentage alone, and weigh whether the clones are deliberate (tests, fixtures, generated code) or shared behavior that should be centralized. `duplicationStatus: unavailable` means the check could not run and is neutral, not a penalty.
 
 ### Change Safety
