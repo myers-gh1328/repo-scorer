@@ -4,9 +4,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 vi.mock('./duplication', () => ({ detectDuplication: vi.fn() }));
+vi.mock('./fileSize', () => ({ detectFileSizes: vi.fn() }));
 
 import { scanRepo } from './scanner';
 import { detectDuplication } from './duplication';
+import { detectFileSizes } from './fileSize';
 import type { RuntimeSupportMatrix } from './reference/runtimeSupport';
 
 describe('scanRepo', () => {
@@ -474,5 +476,53 @@ describe('scanRepo duplication evidence', () => {
 
     expect(result.evidence.duplicationStatus).toBe('unavailable');
     expect(result.evidence.duplicationPercentage).toBeUndefined();
+  });
+});
+
+describe('scanRepo file size evidence', () => {
+  let repoDir: string;
+
+  beforeEach(async () => {
+    vi.mocked(detectFileSizes).mockReset();
+    repoDir = await mkdtemp(join(tmpdir(), 'repo-scorer-size-'));
+  });
+
+  it('does not run the file size check unless asked', async () => {
+    const result = await scanRepo(repoDir);
+
+    expect(vi.mocked(detectFileSizes)).not.toHaveBeenCalled();
+    expect(result.evidence.fileSizeStatus).toBeUndefined();
+  });
+
+  it('adds measured file size evidence when enabled', async () => {
+    vi.mocked(detectFileSizes).mockResolvedValue({
+      status: 'measured',
+      codeFileCount: 57,
+      codeLineCount: 10900,
+      filesOver500Lines: 7,
+      filesOver1000Lines: 0,
+      largestFiles: ['src/lib/improvementPlanner.ts (869 lines)']
+    });
+
+    const result = await scanRepo(repoDir, undefined, { fileSize: true });
+
+    expect(vi.mocked(detectFileSizes)).toHaveBeenCalledWith(repoDir);
+    expect(result.evidence).toMatchObject({
+      fileSizeStatus: 'measured',
+      codeFileCount: 57,
+      codeLineCount: 10900,
+      filesOver500Lines: 7,
+      filesOver1000Lines: 0,
+      largestFiles: ['src/lib/improvementPlanner.ts (869 lines)']
+    });
+  });
+
+  it('records unavailable file sizes as neutral evidence', async () => {
+    vi.mocked(detectFileSizes).mockResolvedValue({ status: 'unavailable' });
+
+    const result = await scanRepo(repoDir, undefined, { fileSize: true });
+
+    expect(result.evidence.fileSizeStatus).toBe('unavailable');
+    expect(result.evidence.largestFiles).toBeUndefined();
   });
 });

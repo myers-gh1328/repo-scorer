@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 
 vi.mock('./llmClient', () => ({ callLLM: vi.fn() }));
 vi.mock('./duplication', () => ({ detectDuplication: vi.fn().mockResolvedValue({ status: 'unavailable' }) }));
+vi.mock('./fileSize', () => ({ detectFileSizes: vi.fn().mockResolvedValue({ status: 'unavailable' }) }));
 
 import { scoreRepo, type ScoreRepoOptions } from './scorer';
 import { callLLM } from './llmClient';
 import { detectDuplication } from './duplication';
+import { detectFileSizes } from './fileSize';
 import { loadRubricDefinition, type RubricDefinition } from './rubricSchema';
 import { resetStorageForTests, storage } from './server/storage';
 import { plainRubricGuidance, resolveRubricGuidance } from './rubricGuidance';
@@ -76,6 +78,14 @@ describe('scoreRepo', () => {
 
     await scoreRepo(options({ evaluationMode: 'maintainability' }));
     expect(vi.mocked(detectDuplication)).toHaveBeenCalledWith(repoDir);
+  });
+
+  it('runs the file size check only for maintainability scoring', async () => {
+    await scoreRepo(options());
+    expect(vi.mocked(detectFileSizes)).not.toHaveBeenCalled();
+
+    await scoreRepo(options({ evaluationMode: 'maintainability' }));
+    expect(vi.mocked(detectFileSizes)).toHaveBeenCalledWith(repoDir);
   });
 
   it('returns a ScoreResult with scoredAt and metadata populated', async () => {

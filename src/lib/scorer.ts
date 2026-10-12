@@ -132,7 +132,10 @@ export async function scoreRepo({
     currentStep: 0,
     totalSteps
   });
-  const scan = await scanRepo(repoPath, runtimeSupport, { duplication: evaluationMode === 'maintainability' });
+  const scan = await scanRepo(repoPath, runtimeSupport, {
+    duplication: evaluationMode === 'maintainability',
+    fileSize: evaluationMode === 'maintainability'
+  });
   let result = await scoreRepoByCategory(rubricDefinition, guidance, scan, llmConfig, name, evaluationMode);
   updateScoringProgress(name, {
     evaluationMode,
