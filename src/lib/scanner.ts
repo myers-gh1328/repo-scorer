@@ -1,8 +1,9 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, join, relative } from 'node:path';
+import { basename, join } from 'node:path';
 import { detectDuplication } from './duplication';
 import { detectFileSizes } from './fileSize';
+import { packageScripts, walkRepo, type RepoEntry } from './repoFiles';
 import { isRuntimeSupportMatrixStale, runtimeSupportAnalysis, type RuntimeSupportMatrix } from './reference/runtimeSupport';
 
 const MAX_FILE_CHARS = 8000;
@@ -107,33 +108,19 @@ function isRelevantFile(name: string): boolean {
     name === '.gitignore';
 }
 
-async function collectDir(
-  dir: string,
-  repoRoot: string,
-  files: ScannedFile[],
-  depth = 0
-): Promise<void> {
-  if (depth > MAX_COLLECT_DEPTH) return;
-  let entries: string[];
-  try {
-    entries = await readdir(dir);
-  } catch {
-    return;
-  }
+async function collectDir(dir: string, repoRoot: string, files: ScannedFile[]): Promise<void> {
+  const entries = await walkRepo(repoRoot, { startDir: dir, maxDepth: MAX_COLLECT_DEPTH, ignoredDirs: IGNORED_DIRS });
   for (const entry of entries) {
-    if (IGNORED_DIRS.has(entry)) continue;
-    const full = join(dir, entry);
-    try {
-      const s = await stat(full);
-      if (s.isDirectory()) {
-        await collectDir(full, repoRoot, files, depth + 1);
-      } else if (s.isFile() && isRelevantFile(entry)) {
-        const content = await readFile(full, 'utf-8');
-        files.push({ relativePath: relative(repoRoot, full).replace(/\\/g, '/'), content: content.slice(0, MAX_FILE_CHARS), fullLength: content.length });
-      }
-    } catch {
-      // skip unreadable entries
-    }
+    if (!entry.isDirectory && isRelevantFile(entry.name)) await addScannedFile(entry, files);
+  }
+}
+
+async function addScannedFile(entry: RepoEntry, files: ScannedFile[]): Promise<void> {
+  try {
+    const content = await readFile(entry.fullPath, 'utf-8');
+    files.push({ relativePath: entry.relativePath, content: content.slice(0, MAX_FILE_CHARS), fullLength: content.length });
+  } catch {
+    // skip unreadable entries
   }
 }
 
@@ -274,15 +261,15 @@ export async function scanRepo(repoPath: string, runtimeSupport?: RuntimeSupport
 }
 
 async function collectNestedAgents(repoRoot: string, files: ScannedFile[]): Promise<void> {
-  await collectByName(repoRoot, repoRoot, files, 'AGENTS.md');
+  await collectByName(repoRoot, files, 'AGENTS.md');
 }
 
 async function collectSkillFiles(repoRoot: string, files: ScannedFile[]): Promise<void> {
-  await collectByName(repoRoot, repoRoot, files, 'SKILL.md');
+  await collectByName(repoRoot, files, 'SKILL.md');
 }
 
 async function collectMaintainabilityEvidenceFiles(repoRoot: string, files: ScannedFile[]): Promise<void> {
-  await collectByPredicate(repoRoot, repoRoot, files, path =>
+  await collectByPredicate(repoRoot, files, path =>
     isTestPath(path) ||
     isIacPath(path) ||
     isRuntimePath(path) ||
@@ -292,63 +279,20 @@ async function collectMaintainabilityEvidenceFiles(repoRoot: string, files: Scan
   );
 }
 
-async function collectByName(dir: string, repoRoot: string, files: ScannedFile[], targetName: string, depth = 0): Promise<void> {
-  if (depth > MAX_COLLECT_DEPTH) return;
-  let entries: string[];
-  try {
-    entries = await readdir(dir);
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    if (IGNORED_DIRS.has(entry)) continue;
-    const full = join(dir, entry);
-    try {
-      const s = await stat(full);
-      if (s.isDirectory()) {
-        await collectByName(full, repoRoot, files, targetName, depth + 1);
-      } else if (s.isFile() && entry === targetName) {
-        const relativePath = relative(repoRoot, full).replace(/\\/g, '/');
-        if (files.some(file => file.relativePath === relativePath)) continue;
-        const content = await readFile(full, 'utf-8');
-        files.push({ relativePath, content: content.slice(0, MAX_FILE_CHARS), fullLength: content.length });
-      }
-    } catch {
-      // skip unreadable entries
-    }
-  }
+async function collectByName(repoRoot: string, files: ScannedFile[], targetName: string): Promise<void> {
+  await collectByPredicate(repoRoot, files, (_path, name) => name === targetName);
 }
 
 async function collectByPredicate(
-  dir: string,
   repoRoot: string,
   files: ScannedFile[],
-  predicate: (relativePath: string) => boolean,
-  depth = 0
+  predicate: (relativePath: string, name: string) => boolean
 ): Promise<void> {
-  if (depth > MAX_COLLECT_DEPTH) return;
-  let entries: string[];
-  try {
-    entries = await readdir(dir);
-  } catch {
-    return;
-  }
+  const entries = await walkRepo(repoRoot, { maxDepth: MAX_COLLECT_DEPTH, ignoredDirs: IGNORED_DIRS });
   for (const entry of entries) {
-    if (IGNORED_DIRS.has(entry)) continue;
-    const full = join(dir, entry);
-    try {
-      const s = await stat(full);
-      if (s.isDirectory()) {
-        await collectByPredicate(full, repoRoot, files, predicate, depth + 1);
-      } else if (s.isFile()) {
-        const relativePath = relative(repoRoot, full).replace(/\\/g, '/');
-        if (!predicate(relativePath) || files.some(file => file.relativePath === relativePath)) continue;
-        const content = await readFile(full, 'utf-8');
-        files.push({ relativePath, content: content.slice(0, MAX_FILE_CHARS), fullLength: content.length });
-      }
-    } catch {
-      // skip unreadable entries
-    }
+    if (entry.isDirectory || !predicate(entry.relativePath, entry.name)) continue;
+    if (files.some(file => file.relativePath === entry.relativePath)) continue;
+    await addScannedFile(entry, files);
   }
 }
 
@@ -542,14 +486,9 @@ function hasObviousSecretMarker(file: ScannedFile): boolean {
 }
 
 function extractPackageScripts(content: string, pattern: RegExp): string[] {
-  try {
-    const parsed = JSON.parse(content) as { scripts?: Record<string, unknown> };
-    return Object.entries(parsed.scripts ?? {})
-      .filter(([, command]) => typeof command === 'string' && pattern.test(command))
-      .map(([name, command]) => `package.json:${name}=${command}`);
-  } catch {
-    return [];
-  }
+  return packageScripts(content)
+    .filter(([, command]) => pattern.test(command))
+    .map(([name, command]) => `package.json:${name}=${command}`);
 }
 
 function extractValidationCommands(files: ScannedFile[], pattern: RegExp): string[] {
