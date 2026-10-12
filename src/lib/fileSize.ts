@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process';
-import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { join } from 'node:path';
+import { walkRepo } from './repoFiles';
 import { isTestPath } from './scanner';
 
 const GIT_TIMEOUT_MS = 30_000;
 const MAX_FILES = 20_000;
+const MAX_WALK_DEPTH = 20;
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_LARGEST_FILES = 10;
 const LARGE_FILE_LINES = 500;
@@ -112,26 +114,8 @@ function listGitFiles(repoPath: string): Promise<string[]> {
 }
 
 async function walkFiles(repoPath: string): Promise<string[]> {
-  const files: string[] = [];
-  const pending = [repoPath];
-  while (pending.length > 0 && files.length < MAX_FILES) {
-    const dir = pending.pop()!;
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (!WALK_IGNORED_DIRS.has(entry.name)) pending.push(full);
-      } else if (entry.isFile()) {
-        files.push(relative(repoPath, full).replace(/\\/g, '/'));
-      }
-    }
-  }
-  return files;
+  const entries = await walkRepo(repoPath, { maxDepth: MAX_WALK_DEPTH, ignoredDirs: WALK_IGNORED_DIRS, limit: MAX_FILES });
+  return entries.filter(entry => !entry.isDirectory).map(entry => entry.relativePath);
 }
 
 function unique(values: string[]): string[] {
