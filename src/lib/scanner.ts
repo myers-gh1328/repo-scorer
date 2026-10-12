@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { detectDuplication } from './duplication';
+import { detectFileSizes } from './fileSize';
 import { isRuntimeSupportMatrixStale, runtimeSupportAnalysis, type RuntimeSupportMatrix } from './reference/runtimeSupport';
 
 const MAX_FILE_CHARS = 8000;
@@ -205,10 +206,17 @@ export interface EvidenceInventory {
   duplicationCloneCount?: number;
   duplicationDuplicatedLines?: number;
   duplicationTopPairs?: string[];
+  fileSizeStatus?: 'measured' | 'unavailable';
+  codeFileCount?: number;
+  codeLineCount?: number;
+  filesOver500Lines?: number;
+  filesOver1000Lines?: number;
+  largestFiles?: string[];
 }
 
 export interface ScanOptions {
   duplication?: boolean;
+  fileSize?: boolean;
 }
 
 export interface ScanResult {
@@ -248,6 +256,17 @@ export async function scanRepo(repoPath: string, runtimeSupport?: RuntimeSupport
       evidence.duplicationCloneCount = duplication.cloneCount;
       evidence.duplicationDuplicatedLines = duplication.duplicatedLines;
       evidence.duplicationTopPairs = duplication.topPairs;
+    }
+  }
+  if (options.fileSize) {
+    const fileSize = await detectFileSizes(repoPath);
+    evidence.fileSizeStatus = fileSize.status;
+    if (fileSize.status === 'measured') {
+      evidence.codeFileCount = fileSize.codeFileCount;
+      evidence.codeLineCount = fileSize.codeLineCount;
+      evidence.filesOver500Lines = fileSize.filesOver500Lines;
+      evidence.filesOver1000Lines = fileSize.filesOver1000Lines;
+      evidence.largestFiles = fileSize.largestFiles;
     }
   }
 
@@ -497,7 +516,7 @@ function hasVolatileContent(content: string): boolean {
   return /\b20\d\d-\d\d-\d\d\b/.test(content) || /\b(last updated|generated (on|at))\b/i.test(content);
 }
 
-function isTestPath(path: string): boolean {
+export function isTestPath(path: string): boolean {
   return /(^|\/)(__tests__|tests?|spec)\//i.test(path) || /\.(test|spec)\.(ts|tsx|js|jsx|py|go|rs|cs)$/i.test(path);
 }
 

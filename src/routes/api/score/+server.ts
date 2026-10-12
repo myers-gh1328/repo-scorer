@@ -71,7 +71,7 @@ export const POST: RequestHandler = async ({ request }) => {
       guidanceTool: aiTooling,
       runtimeSupport: runtimeSupport ?? undefined,
       metadata: {
-        scannerEvidenceVersion: '2026-10-01.2',
+        scannerEvidenceVersion: '2026-10-11.1',
         ...(runtimeSupport ? {
           referenceDataVersion: runtimeSupport.version,
           referenceDataLastUpdated: runtimeSupport.lastUpdated
