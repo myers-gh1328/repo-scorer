@@ -43,6 +43,15 @@ describe('walkRepo', () => {
     ]);
   });
 
+  it('skips nested checkouts such as agent worktrees', async () => {
+    await mkdir(join(repoDir, '.claude/worktrees/agent-a1/src'), { recursive: true });
+    await writeFile(join(repoDir, '.claude/worktrees/agent-a1/.git'), 'gitdir: /elsewhere');
+    await writeFile(join(repoDir, '.claude/worktrees/agent-a1/src/copy.ts'), '');
+    expect(await paths({ maxDepth: 10, ignoredDirs: new Set(['node_modules', 'a']) })).toEqual([
+      '.claude/', '.claude/worktrees/', 'root.ts'
+    ]);
+  });
+
   it('returns nothing for a missing start directory and honors the entry limit', async () => {
     expect(await walkRepo(repoDir, { startDir: join(repoDir, 'missing'), maxDepth: 5, ignoredDirs: new Set() })).toEqual([]);
     expect(await walkRepo(repoDir, { maxDepth: 10, ignoredDirs: new Set(), limit: 3 })).toHaveLength(3);

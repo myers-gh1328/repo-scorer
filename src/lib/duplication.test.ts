@@ -5,7 +5,7 @@ vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
 import { execFile } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { detectDuplication, parseJscpdReport, DUPLICATION_IGNORE_GLOBS } from './duplication';
+import { detectDuplication, nestedCheckoutGlobs, parseJscpdReport, DUPLICATION_IGNORE_GLOBS } from './duplication';
 
 const report = {
   statistics: { total: { percentage: 5.1549, clones: 3, duplicatedLines: 61 } },
@@ -16,10 +16,11 @@ const report = {
   ]
 };
 
-type ExecCallback = (error: Error | null) => void;
+type ExecCallback = (error: Error | null, stdout?: string) => void;
 
-function mockJscpd(writeReport: (outputDir: string) => Promise<void>, error: Error | null = null) {
-  vi.mocked(execFile).mockImplementation(((_command: string, args: string[], _options: unknown, callback: ExecCallback) => {
+function mockJscpd(writeReport: (outputDir: string) => Promise<void>, error: Error | null = null, gitOthers = '') {
+  vi.mocked(execFile).mockImplementation(((command: string, args: string[], _options: unknown, callback: ExecCallback) => {
+    if (command === 'git') return callback(null, gitOthers);
     const outputDir = args[args.indexOf('--output') + 1];
     writeReport(outputDir).then(() => callback(error), callback);
   }) as unknown as typeof execFile);
@@ -50,6 +51,17 @@ describe('parseJscpdReport', () => {
   });
 });
 
+const jscpdArgs = () => vi.mocked(execFile).mock.calls.find(call => call[0] !== 'git')![1] as string[];
+
+describe('nestedCheckoutGlobs', () => {
+  it('ignores everything under each nested checkout', () => {
+    expect(nestedCheckoutGlobs(['.claude/worktrees/agent-a1/', 'vendor/sdk'])).toEqual([
+      '**/.claude/worktrees/agent-a1/**',
+      '**/vendor/sdk/**'
+    ]);
+  });
+});
+
 describe('detectDuplication', () => {
   beforeEach(() => {
     vi.mocked(execFile).mockReset();
@@ -62,7 +74,7 @@ describe('detectDuplication', () => {
 
     expect(result.status).toBe('measured');
     expect(result.cloneCount).toBe(3);
-    const args = vi.mocked(execFile).mock.calls[0][1] as string[];
+    const args = jscpdArgs();
     expect(args).toContain('/repo');
     expect(args[args.indexOf('--reporters') + 1]).toBe('json');
     expect(args[args.indexOf('--min-tokens') + 1]).toBe('50');
@@ -72,6 +84,20 @@ describe('detectDuplication', () => {
       expect(DUPLICATION_IGNORE_GLOBS).toContain(`**/${dir}/**`);
     }
     expect(args).not.toContain('--threshold');
+  });
+
+  it('excludes nested checkouts that git lists among untracked files', async () => {
+    mockJscpd(
+      dir => writeFile(join(dir, 'jscpd-report.json'), JSON.stringify(report)),
+      null,
+      '.claude/worktrees/agent-a1/\0notes/new.ts\0'
+    );
+
+    await detectDuplication('/repo');
+
+    const ignore = jscpdArgs()[jscpdArgs().indexOf('--ignore') + 1].split(',');
+    expect(ignore).toContain('**/.claude/worktrees/agent-a1/**');
+    expect(ignore).not.toContain('**/notes/new.ts/**');
   });
 
   it('returns unavailable when jscpd fails', async () => {

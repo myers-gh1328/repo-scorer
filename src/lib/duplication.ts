@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const JSCPD_TIMEOUT_MS = 60_000;
+const GIT_TIMEOUT_MS = 30_000;
 const MAX_TOP_PAIRS = 10;
 const MIN_TOKENS = '50';
 const MIN_LINES = '5';
@@ -58,7 +59,7 @@ export async function detectDuplication(repoPath: string): Promise<DuplicationEv
       '--output', outputDir,
       '--min-tokens', MIN_TOKENS,
       '--min-lines', MIN_LINES,
-      '--ignore', DUPLICATION_IGNORE_GLOBS.join(',')
+      '--ignore', [...DUPLICATION_IGNORE_GLOBS, ...nestedCheckoutGlobs(await listNestedCheckouts(repoPath))].join(',')
     ]);
     const report = JSON.parse(await readFile(join(outputDir, 'jscpd-report.json'), 'utf-8')) as JscpdReport;
     return parseJscpdReport(report);
@@ -84,6 +85,29 @@ export function parseJscpdReport(report: JscpdReport): DuplicationEvidence {
     duplicatedLines: total.duplicatedLines ?? 0,
     topPairs
   };
+}
+
+/** One glob per nested checkout (an agent worktree, a cloned repo), so jscpd does not count its copies as clones. */
+export function nestedCheckoutGlobs(directories: string[]): string[] {
+  return directories.map(directory => `**/${directory.replace(/\/+$/, '')}/**`);
+}
+
+/**
+ * Directories git reports as nested repositories: `ls-files --others` lists each
+ * untracked checkout as one `path/` entry instead of its files. Empty outside git.
+ */
+function listNestedCheckouts(repoPath: string): Promise<string[]> {
+  return new Promise(resolve => {
+    execFile(
+      'git',
+      ['ls-files', '-z', '--others', '--exclude-standard'],
+      { cwd: repoPath, timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) resolve([]);
+        else resolve(String(stdout).split('\0').filter(path => path.endsWith('/')));
+      }
+    );
+  });
 }
 
 function formatLocation(location: JscpdLocation): string {
