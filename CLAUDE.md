@@ -19,7 +19,7 @@ Evaluation modes (`src/lib/evaluationModes.ts`):
 
 `scoreRepo` in `src/lib/scorer.ts`:
 
-1. `scanner.ts` (+ `duplication.ts` in maintainability mode) collects files and an evidence inventory.
+1. `scanner.ts` (+ `duplication.ts` in maintainability mode) collects files and an evidence inventory. Nested checkouts (any directory holding `.git`, such as agent worktrees) are skipped.
 2. One LLM call per rubric category (`promptBuilder.ts`, `llmClient.ts`, `responseSchemas.ts`). Each prompt carries the full rubric markdown unless the scoring model's context window cannot fit it; then it steps down to per-category excerpts (`rubricGuidance.ts`, `promptBudget.ts`). Context-length errors from the server also step down a level.
 3. `scoreCaps.ts` applies deterministic evidence caps.
 4. `consistencyChecks.ts` enforces band constraints.
