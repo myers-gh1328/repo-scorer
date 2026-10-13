@@ -91,7 +91,7 @@ async function countLines(fullPath: string): Promise<number | undefined> {
     const info = await stat(fullPath);
     if (!info.isFile() || info.size > MAX_FILE_BYTES) return undefined;
     const content = await readFile(fullPath, 'utf-8');
-    if (/@generated|DO NOT EDIT/.test(content.slice(0, GENERATED_MARKER_CHARS))) return undefined;
+    if (/@generated|do not edit/i.test(content.slice(0, GENERATED_MARKER_CHARS))) return undefined;
     return countPhysicalLines(content);
   } catch {
     return undefined;
