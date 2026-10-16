@@ -1,0 +1,10 @@
+# Agent guidance, skills, and rubric files
+/AGENTS.md          @myers-gh1328
+/CLAUDE.md          @myers-gh1328
+/.agents/           @myers-gh1328
+/.claude/           @myers-gh1328
+/.gemini/           @myers-gh1328
+/.github/           @myers-gh1328
+/rubric.md          @myers-gh1328
+/rubric.schema.json @myers-gh1328
+/rubrics/           @myers-gh1328

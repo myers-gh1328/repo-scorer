@@ -1,6 +1,6 @@
 # Rubric Updates
 
-Reports that gate changes to repo-scorer rubrics (`rubric.md`, `rubric.schema.json`, and `rubrics/*/`). Every report starts with a decision block (see `.agent/skills/*/references/report-contract.md`).
+Reports that gate changes to repo-scorer rubrics (`rubric.md`, `rubric.schema.json`, and `rubrics/*/`). Every report starts with a decision block (see `.agents/skills/*/references/report-contract.md`).
 
 | Folder | Produced by | Purpose |
 |---|---|---|

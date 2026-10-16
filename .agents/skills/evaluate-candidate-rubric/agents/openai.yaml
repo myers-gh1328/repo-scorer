@@ -1,4 +1,4 @@
-interfaces:
+interface:
   display_name: "Evaluate Candidate Rubric"
   short_description: "Compare incoming rubric artifacts."
   default_prompt: "Evaluate this candidate rubric against the current repo-scorer rubric and write a candidate evaluation report."

@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run test -- --run
+      - run: npm run build
+
+  agent-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Guidance pointers import AGENTS.md
+        run: |
+          grep -qx '@AGENTS.md' CLAUDE.md
+          grep -q '"fileName": "AGENTS.md"' .gemini/settings.json
+      - name: Skill names match their directories
+        run: |
+          status=0
+          for skill in .agents/skills/*/SKILL.md; do
+            dir=$(basename "$(dirname "$skill")")
+            name=$(sed -n 's/^name: *//p' "$skill" | head -1)
+            if [ "$name" != "$dir" ]; then
+              echo "::error file=$skill::name '$name' does not match directory '$dir'"
+              status=1
+            fi
+          done
+          exit $status
+      - name: Claude skills link points at .agents/skills
+        run: test "$(readlink .claude/skills)" = "../.agents/skills"
